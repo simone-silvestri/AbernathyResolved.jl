@@ -11,7 +11,7 @@ using CUDA
 
 using Oceananigans
 using Oceananigans.Units
-using Oceananigans.Advection: VelocityStencil
+using Oceananigans.Advection: VelocityStencil, VorticityStencil
 using Oceananigans.OutputReaders: FieldTimeSeries
 using Oceananigans.Grids: xnode, ynode, znode
 using Oceananigans.Operators
@@ -85,20 +85,20 @@ coriolis = BetaPlane(f₀ = f, β = β)
 ##### Model building
 #####
 
-using Oceananigans.TurbulenceClosures: VerticallyImplicitTimeDiscretization
+using Oceananigans.TurbulenceClosures: VerticallyImplicitTimeDiscretization, HorizontalDivergenceScalarBiharmonicDiffusivity
 
 @show νh = (Lx / Nx)^4 / 5days
 
-horizontal_viscosity  = HorizontalScalarBiharmonicDiffusivity(ν = νh)
+horizontal_viscosity  = HorizontalDivergenceScalarBiharmonicDiffusivity(ν = νh)
 vertical_viscosity    = VerticalScalarDiffusivity(VerticallyImplicitTimeDiscretization(), ν = 1e-5)
 convective_adjustment = ConvectiveAdjustmentVerticalDiffusivity(convective_κz = 1.0)
 
-closure = (horizontal_viscosity, vertical_viscosity, convective_adjustment)
+closure = (horizontal_viscosity, convective_adjustment)
 
 @info "Building a model..."
 model = HydrostaticFreeSurfaceModel(; grid, closure,
                                     free_surface = ImplicitFreeSurface(),
-                                    momentum_advection = Centered(),
+                                    momentum_advection = WENO(vector_invariant=VelocityStencil()),
                                     tracer_advection = WENO(grid),
                                     buoyancy = BuoyancyTracer(),
                                     coriolis = coriolis,
@@ -177,21 +177,11 @@ simulation.callbacks[:print_progress] = Callback(print_progress, IterationInterv
 ##### Diagnostics
 #####
 
-# include("diagnostics.jl")
-
-# simulation.callbacks[:diagnostics] = Callback(update_diagnostics, IterationInterval(5))
-
-simulation.output_writers[:averages] = JLD2OutputWriter(model, (; u, v, w, b, c), #, z★, Γ³, Γ², εᴿᴾᴱ),
+simulation.output_writers[:averages] = JLD2OutputWriter(model, (; u, v, w, b, c),
                                                         schedule = TimeInterval(12hours),
-                                                        filename = "abernathey_channel_fields_centered_momentum",
+                                                        filename = "abernathey_channel_fields_velocity_stencil",
                                                         overwrite_existing = true)
 
-
-# simulation.output_writers[:averages] = JLD2OutputWriter(model, averaged_outputs,
-#                                                         schedule = AveragedTimeInterval(1days, window = 1days, stride = 1),
-#                                                         filename = "abernathey_channel_averages",
-#                                                         verbose = true,
-#                                                         overwrite_existing = true)
 @info "Running the simulation..."
 
 try
