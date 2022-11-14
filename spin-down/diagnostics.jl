@@ -41,75 +41,73 @@ grid = RectilinearGrid(arch,
 
 file = jldopen("abernathey_channel_fields_fluxform_weno.jld2")
 
-function load_prognostic_fields(file, grid)
-    u = Field[]
-    v = Field[]
-    w = Field[]
-    b = Field[]
-    c = Field[]
+function load_prognostic_fields(file, grid; var = "b")
+    f = Field[]
+    
+    if var == "u"
+        F = XFaceField
+    elseif var == "v"
+        F = YFaceField
+    elseif var == "w"
+        F = ZFaceField
+    else
+        F = CenterField
+    end
 
     for iter in keys(file["timeseries/t"])
         @info "time $iter of $(keys(file["timeseries/t"])[end])"
-        push!(u, set!( XFaceField(grid), file["timeseries/u/" * iter]))
-        push!(v, set!( YFaceField(grid), file["timeseries/v/" * iter]))
-        push!(w, set!( ZFaceField(grid), file["timeseries/w/" * iter]))
-        push!(b, set!(CenterField(grid), file["timeseries/b/" * iter]))
-        push!(c, set!(CenterField(grid), file["timeseries/c/" * iter]))
+        push!(f, set!(F(grid), file["timeseries/" * var * "/" * iter]))
     end
 
-    return u, v, w, b, c
+    return f
 end
+   
+using Oceananigans.AbstractOperations: GridMetricOperation, volume
 
-GPUgrid = on_architecture(GPU(), grid)
-    
-function calculate_z★_diagnostics(b, grid, GPUgrid)
+vol = compute!(Field(GridMetricOperation((Center, Center, Center), volume, grid)))
 
-    arch = architecture(GPUgrid)
+function calculate_z★_diagnostics(b, vol, grid)
+
+    arch = architecture(grid)
 
     z★ = []
 
-    tmpz★ = CenterField(GPUgrid)
     for iter in eachindex(b)
+       perm = sortperm(Array(interior(b[iter]))[:])
+       sorted_b_field = (Array(interior(b[iter]))[:])[perm]
+       sorted_v_field = (Array(interior(vol))[:])[perm]
+       integrated_v   = cumsum(sorted_v_field)    
+
        @info "time $iter of $(length(b))"
        push!(z★, CenterField(grid))
-       z★_event = launch!(arch, GPUgrid, :xyz, _calculate_z★, tmpz★, arch_array(arch, b[iter].data), GPUgrid; dependencies = device_event(arch))
+       wall_clock = [time_ns()]
+       z★_event = launch!(arch, grid, :xyz, _calculate_z★, z★[iter], b[iter], sorted_b_field, integrated_v, grid; dependencies = device_event(arch))
        wait(device(arch), z★_event)
-       set!(z★[iter], Array(interior(tmpz★)))
+       @info " wall time $(1e-9 * (time_ns() - wall_clock[1]))"
     end
         
     return z★
 end
 
-@kernel function _calculate_z★(z★, b, grid)
+@kernel function _calculate_z★(z★, b, b_sorted, v_integrated, grid)
     i, j, k = @index(Global, NTuple)
-    
-    Nx, Ny, Nz = size(grid)
-
-    FT = eltype(z★)
-    bl = b[i, j, k]
-    A  = grid.Lx * grid.Ly
-
-    z★[i, j, k] = 0.0
-    @unroll for k′ in 1:Nz
-        @show k′
-        for j′ in 1:Ny, i′ in 1:Nx
-                V = Vᶜᶜᶜ(i′, j′, k′, grid)
-                z★[i, j, k] += V / A * FT(bl > b[i′, j′, k′])
-        end
-    end
+    bl  = b[i, j, k]
+    A   = grid.Lx * grid.Ly
+    i₁  = searchsortedfirst(b_sorted, bl)
+    z★[i, j, k] = v_integrated[i₁] / A
 end
 
 function reorder_z★_and_b(z★, b)
     reordered_z★ = []
     reordered_b  = []
 
-    Nx, Ny, Nz = size(b)
     for iter in eachindex(b)
-        btmp = reshape(Array(interior(b[iter])),  Nx * Ny * Nz)
-        ztmp = reshape(Array(interior(z★[iter])), Nx * Ny * Nz)
-        perm = sortperm(ztmp)
-        push!(reordered_b , btmp[perm])
-        push!(reordered_z★, ztmp[perm])
+        perm           = sortperm(Array(interior(z★[iter]))[:])
+        sorted_b_field = (Array(interior(b[iter]))[:])[perm]
+        sorted_z_field = (Array(interior(z★[iter]))[:])[perm]
+        @info "time $iter of $(length(b))"
+        push!(reordered_b , sorted_b_field)
+        push!(reordered_z★, sorted_z_field)
     end
 
     return reordered_b, reordered_z★
@@ -120,6 +118,7 @@ function all_diagnostics(z★, b, z★_arr, b_arr, grid)
     Γ² = []
     Γ³ = []
     εᴿ = []
+    RPE = []
 
     for iter in eachindex(b)
         push!(Γ³, compute!(Field(b[iter] * z★[iter])))
@@ -129,6 +128,7 @@ function all_diagnostics(z★, b, z★_arr, b_arr, grid)
         wait(event)
 
         push!(εᴿ, compute!(Field(Γ²[iter] + Γ³[iter])))
+        push!(RPE, compute!(Field(Integral(εᴿ)))[1, 1, 1])
     end
 
     return Γ², Γ³, εᴿ
