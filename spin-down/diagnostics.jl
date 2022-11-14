@@ -7,8 +7,6 @@ using Oceananigans.Architectures: device, device_event, arch_array
 using KernelAbstractions: @kernel, @index
 using KernelAbstractions.Extras.LoopInfo: @unroll
 
-using Oceananigans.Fields: index_binary_search
-
 using JLD2
 
 # Architecture
@@ -41,7 +39,7 @@ grid = RectilinearGrid(arch,
 
 file = jldopen("abernathey_channel_fields_fluxform_weno.jld2")
 
-function load_prognostic_fields(file, grid; var = "b")
+function load_prognostic_fields(file, grid; var = "b", iterations = :all)
     f = Field[]
     
     if var == "u"
@@ -54,9 +52,13 @@ function load_prognostic_fields(file, grid; var = "b")
         F = CenterField
     end
 
-    for iter in keys(file["timeseries/t"])
+    for (idx, iter) in enumerate(keys(file["timeseries/t"]))
         @info "time $iter of $(keys(file["timeseries/t"])[end])"
         push!(f, set!(F(grid), file["timeseries/" * var * "/" * iter]))
+
+        if idx == iterations
+            break
+        end
     end
 
     return f
@@ -66,13 +68,19 @@ using Oceananigans.AbstractOperations: GridMetricOperation, volume
 
 vol = compute!(Field(GridMetricOperation((Center, Center, Center), volume, grid)))
 
-function calculate_z★_diagnostics(b, vol, grid)
+function calculate_z★_diagnostics(b, vol, grid; iterations = :all)
 
     arch = architecture(grid)
 
     z★ = []
 
-    for iter in eachindex(b)
+    if iterations == :all
+        iters = eachindex(b)
+    else
+        iters = 1:iterations
+    end
+
+    for iter in iters
        perm = sortperm(Array(interior(b[iter]))[:])
        sorted_b_field = (Array(interior(b[iter]))[:])[perm]
        sorted_v_field = (Array(interior(vol))[:])[perm]
@@ -97,38 +105,33 @@ end
     z★[i, j, k] = v_integrated[i₁] / A
 end
 
-function reorder_z★_and_b(z★, b)
-    reordered_z★ = []
-    reordered_b  = []
+function all_diagnostics(z★, b, grid; iterations = :all)
 
-    for iter in eachindex(b)
-        perm           = sortperm(Array(interior(z★[iter]))[:])
-        sorted_b_field = (Array(interior(b[iter]))[:])[perm]
-        sorted_z_field = (Array(interior(z★[iter]))[:])[perm]
-        @info "time $iter of $(length(b))"
-        push!(reordered_b , sorted_b_field)
-        push!(reordered_z★, sorted_z_field)
+    arch = architecture(grid)
+
+    Γ² = Field[]
+    Γ³ = Field[]
+    εᴿ = Field[]
+
+    if iterations == :all
+        iters = eachindex(b)
+    else
+        iters = 1:iterations
     end
 
-    return reordered_b, reordered_z★
-end
-
-function all_diagnostics(z★, b, z★_arr, b_arr, grid)
-
-    Γ² = []
-    Γ³ = []
-    εᴿ = []
-    RPE = []
-
-    for iter in eachindex(b)
+    for iter in iters
         push!(Γ³, compute!(Field(b[iter] * z★[iter])))
         push!(Γ², CenterField(grid))
 
-        event = _calculate_Γ²(Γ²[iter], z★[iter], z★_arr[iter], b_arr[iter], grid)
-        wait(event)
-
+        perm   = sortperm(Array(interior(z★[iter]))[:])
+        b_arr  = (Array(interior(b[iter]))[:])[perm]
+        z★_arr = (Array(interior(z★[iter]))[:])[perm]
+    
+        @info "compute all diagnostics iteration $iter"
+        Γ²_event = launch!(arch, grid, :xyz, _calculate_Γ², Γ²[iter], z★[iter], z★_arr, b_arr, grid; dependencies = device_event(arch))
+        wait(device(arch), Γ²_event)
+        
         push!(εᴿ, compute!(Field(Γ²[iter] + Γ³[iter])))
-        push!(RPE, compute!(Field(Integral(εᴿ)))[1, 1, 1])
     end
 
     return Γ², Γ³, εᴿ
@@ -140,11 +143,11 @@ end
     Nint = 10.0
      
     Γ²[i, j, k] = 0.0
-        
-    z_local  = znode(Center(), k, grid)
+         
+    z_local  = znode(Center(), k, grid) + grid.Lz
     z★_local = z★[i, j, k] 
     Δz       = (z_local - z★_local) / Nint
-    zrange   = z★_local:Δz:z
+    zrange   = z★_local:Δz:z_local
 
     @unroll for z in zrange
         Γ²[i, j, k] += Δz * linear_interpolate(z★_arr, b_arr, z)
@@ -152,7 +155,8 @@ end
 end
 
 @inline function linear_interpolate(x, y, x₀)
-    i₁, i₂ = index_binary_search(x, xₒ, length(x))
+    i₁ = searchsortedfirst(x, x₀)
+    i₂ =  searchsortedlast(x, x₀)
 
     @inbounds y₂ = y[i₂]
     @inbounds y₁ = y[i₁]
@@ -165,4 +169,17 @@ end
     else
         return (y₂ - y₁) / (x₂ - x₁) * (x₀ - x₁) + y₁
     end
+end
+
+function calc_all_diagnostics(file, grid; iterations = :all)
+    vol = compute!(Field(GridMetricOperation((Center, Center, Center), volume, grid)))
+    b   = load_prognostic_fields(file, grid; var = "b", iterations)
+
+    @info "loaded b field"
+    z★ = calculate_z★_diagnostics(b, vol, grid; iterations) 
+
+    @info "calculated z★"
+    Γ², Γ³, εᴿ = all_diagnostics(z★, b, grid; iterations)
+
+    return (; b, z★, Γ², Γ³, εᴿ)
 end
