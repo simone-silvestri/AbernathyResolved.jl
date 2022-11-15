@@ -6,8 +6,12 @@ using Oceananigans.Grids: architecture, znode, halo_size, on_architecture
 using Oceananigans.Architectures: device, device_event, arch_array
 using KernelAbstractions: @kernel, @index
 using KernelAbstractions.Extras.LoopInfo: @unroll
+using Oceananigans.AbstractOperations: GridMetricOperation, volume
+
 
 using JLD2
+
+include("utils.jl")
 
 # Architecture
 arch = CPU()
@@ -36,10 +40,7 @@ grid = RectilinearGrid(arch,
                        y = (0, Ly),
                        z = z_faces)
 
-
-file = jldopen("abernathey_channel_fields_fluxform_weno.jld2")
-
-function load_prognostic_fields(file, grid; var = "b", iterations = :all)
+function load_prognostic_fields(file, grid; var = "b", iterations = :all, skip = 1)
     f = Field[]
     
     if var == "u"
@@ -52,7 +53,7 @@ function load_prognostic_fields(file, grid; var = "b", iterations = :all)
         F = CenterField
     end
 
-    for (idx, iter) in enumerate(keys(file["timeseries/t"]))
+    for (idx, iter) in enumerate(keys(file["timeseries/t"])[1:skip:end])
         @info "time $iter of $(keys(file["timeseries/t"])[end])"
         push!(f, set!(F(grid), file["timeseries/" * var * "/" * iter]))
 
@@ -64,15 +65,11 @@ function load_prognostic_fields(file, grid; var = "b", iterations = :all)
     return f
 end
    
-using Oceananigans.AbstractOperations: GridMetricOperation, volume
-
-vol = compute!(Field(GridMetricOperation((Center, Center, Center), volume, grid)))
-
 function calculate_z★_diagnostics(b, vol, grid; iterations = :all)
 
     arch = architecture(grid)
 
-    z★ = []
+    z★ = Field[]
 
     if iterations == :all
         iters = eachindex(b)
@@ -171,9 +168,9 @@ end
     end
 end
 
-function calc_all_diagnostics(file, grid; iterations = :all)
+function calc_all_diagnostics(file, grid; iterations = :all, skip = 1)
     vol = compute!(Field(GridMetricOperation((Center, Center, Center), volume, grid)))
-    b   = load_prognostic_fields(file, grid; var = "b", iterations)
+    b   = load_prognostic_fields(file, grid; var = "b", iterations, skip)
 
     @info "loaded b field"
     z★ = calculate_z★_diagnostics(b, vol, grid; iterations) 
@@ -181,5 +178,72 @@ function calc_all_diagnostics(file, grid; iterations = :all)
     @info "calculated z★"
     Γ², Γ³, εᴿ = all_diagnostics(z★, b, grid; iterations)
 
+    @info "calculating RPE"
+    RPE = Float64[]
+    
+    for i in eachindex(εᴿ)
+        @info "computing RPE at $i"
+        push!(RPE, sum(compute!(Field(εᴿ[i] * vol))))
+    end
+
+    return (; b, z★, Γ², Γ³, εᴿ, RPE)
+end
+
+function calc_vort(u, v)
+    
+    ζ = Field[]
+
+    for i in eachindex(u)
+        @info "calculating vorticity at $i"
+        ζ_op = KernelFunctionOperation{Face, Face, Center}(ζ₃ᶠᶠᶜ, grid; computed_dependencies = (u[i], v[i]))
+        push!(ζ, compute!(Field(ζ_op)))
+    end
+
+    return ζ
+end
+
+function calc_spectra(u)
+
+    spectra = Vector(undef, length(u))
+    for i in eachindex(u)
+        @info "calculating spectra at $i"
+        spectra[i] = power_spectrum_1d_x(interior(u[i])[:, :, end], xnodes(u[i]), ynodes(u[i]))
+    end
+
+    return spectra
+end
+
+
+function interiors(fieldvec::Vector)
+    inter = []
+
+    for i in eachindex(fieldvec)
+        push!(inter, interior(fieldvec[i]))
+    end
+
+    return inter
+end
+
+function only_the_interior(outputs)
+
+    b  = interiors(outputs.b)
+    z★ = interiors(outputs.z★)
+    Γ² = interiors(outputs.Γ²)
+    Γ³ = interiors(outputs.Γ³)
+    εᴿ = interiors(outputs.εᴿ)
+
     return (; b, z★, Γ², Γ³, εᴿ)
 end
+
+# file = jldopen("abernathey_channel_fields_fluxform_weno.jld2")
+# weno = calc_all_diagnostics(file, grid; skip = 4)
+# 
+# jldsave("weno-all-skip-3.jld2", output = weno)
+# 
+# weno = nothing
+# GC.gc()
+
+# file   = jldopen("abernathey_channel_fields_centered_momentum.jld2")
+# center = calc_all_diagnostics(file, grid; skip = 4)
+
+# jldsave("center-all-skip-3.jld2", output = center)

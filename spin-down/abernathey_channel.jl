@@ -144,14 +144,10 @@ model.clock.iteration = 1
 ##### Simulation building
 #####
 
-Δt₀       = 1minutes
+Δt₀       = 2minutes
 stop_time = 100days
 
 simulation = Simulation(model, Δt = Δt₀, stop_time = stop_time)
-
-# add timestep wizard callback
-wizard = TimeStepWizard(cfl=0.1, max_change=1.1, max_Δt=3minutes)
-simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10))
 
 # add progress callback
 wall_clock = [time_ns()]
