@@ -24,7 +24,7 @@ arch = GPU()
 # number of grid points
 Nx = 200
 Ny = 400
-Nz = 50
+Nz = 40
 
 """
     function exponential_z_faces(; Nz = 69, Lz = 4000.0, e_folding = 0.06704463421863584)
@@ -53,7 +53,7 @@ grid = RectilinearGrid(arch,
                        halo = (6, 6, 6),
                        x = (0, Lx),
                        y = (0, Ly),
-                       z = exponential_z_faces(Nz, 5000))
+                       z = exponential_z_faces(Nz, 3000))
 
 @info "Built a grid: $grid."
 
