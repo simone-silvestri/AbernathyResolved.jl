@@ -32,20 +32,19 @@ Nz = 50
 generates an array of exponential z faces 
 
 """
-function exponential_z_faces(; Nz = 50, Lz = 5000.0, e_folding = 0.06704463421863584)
-    z_faces   = zeros(Nz + 1)
-    Nconstant = 11
+@inline exponential_profile(z; Lz, h) = (exp(z / h) - exp( - Lz / h)) / (1 - exp( - Lz / h)) 
 
-    z_faces[1:Nconstant] .= 0:5:50
+function exponential_z_faces(Nz, Depth; h = Nz / 4.5)
 
-    for i in 1:(Nz + 1 - Nconstant)
-        z_faces[i + Nconstant] = z_faces[i - 1 + Nconstant] + 5 * exp(e_folding * i)
-    end
+    z_faces = exponential_profile.((1:Nz+1); Lz = Nz, h)
 
-    z_faces    = - reverse(z_faces)
-    z_faces[1] = - Lz
+    # Normalize
+    z_faces .-= z_faces[1]
+    z_faces .*= - Depth / z_faces[end]
+    
+    z_faces[1] = 0.0
 
-    return z_faces
+    return reverse(z_faces)
 end
 
 grid = RectilinearGrid(arch,
@@ -54,7 +53,7 @@ grid = RectilinearGrid(arch,
                        halo = (6, 6, 6),
                        x = (0, Lx),
                        y = (0, Ly),
-                       z = exponential_z_faces(; Nz))
+                       z = exponential_z_faces(Nz, 5000))
 
 @info "Built a grid: $grid."
 
