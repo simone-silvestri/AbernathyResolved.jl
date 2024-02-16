@@ -81,14 +81,14 @@ parameters = (
 )
 
 @inline function buoyancy_flux(i, j, grid, clock, model_fields, p)
-    y = ynode(Center(), j, grid)
+    y = ynode(j, grid, Center())
     return ifelse(y < p.y_shutoff, p.Qᵇ * cos(3π * y / p.Ly), 0.0)
 end
 
 buoyancy_flux_bc = FluxBoundaryCondition(buoyancy_flux, discrete_form = true, parameters = parameters)
 
 @inline function u_stress(i, j, grid, clock, model_fields, p)
-    y = ynode(Center(), j, grid)
+    y = ynode(j, grid, Center())
     return -p.τ * sin(π * y / p.Ly)
 end
 
