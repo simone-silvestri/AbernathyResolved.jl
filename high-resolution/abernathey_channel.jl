@@ -22,8 +22,8 @@ const Ly = 2000kilometers # meridional domain length [m]
 arch = GPU()
 
 # number of grid points
-Nx = 400
-Ny = 800
+Nx = 200
+Ny = 400
 Nz = 50
 
 """
@@ -236,11 +236,11 @@ simulation.output_writers[:checkpointer] = Checkpointer(model,
                                                         prefix = "abernathey_channel",
                                                         overwrite_existing = true)
 
-simulation.output_writers[:averages] = JLD2OutputWriter(model, averaged_outputs,
-                                                        schedule = AveragedTimeInterval(1days, window = 1days, stride = 1),
-                                                        filename = "abernathey_channel_averages",
-                                                        verbose = true,
-                                                        overwrite_existing = true)
+# simulation.output_writers[:averages] = JLD2OutputWriter(model, averaged_outputs,
+#                                                         schedule = AveragedTimeInterval(1days, window = 1days, stride = 1),
+#                                                         filename = "abernathey_channel_averages",
+#                                                         verbose = true,
+#                                                         overwrite_existing = true)
 
 @info "Running the simulation..."
 
