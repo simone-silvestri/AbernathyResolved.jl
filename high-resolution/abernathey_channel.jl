@@ -180,7 +180,7 @@ stop_time = 360000days
 simulation = Simulation(model, Δt = Δt₀, stop_time = stop_time)
 
 # add timestep wizard callback
-wizard = TimeStepWizard(cfl=0.35, max_change=1.1, max_Δt=20minutes)
+wizard = TimeStepWizard(cfl=0.25, max_change=1.1, max_Δt=20minutes)
 simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10))
 
 # add progress callback
