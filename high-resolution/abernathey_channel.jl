@@ -175,7 +175,7 @@ set!(model, b = bᵢ)
 #####
 
 Δt₀ = 1minutes
-stop_time = 100years
+stop_time = 360000days
 
 simulation = Simulation(model, Δt = Δt₀, stop_time = stop_time)
 
