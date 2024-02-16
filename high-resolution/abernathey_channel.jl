@@ -1,6 +1,3 @@
-using Pkg
-Pkg.activate("/home/ssilvest/stable_oceananigans/Oceananigans.jl/")
-using Oceananigans
 ENV["GKSwstype"] = "100"
 
 pushfirst!(LOAD_PATH, @__DIR__)
@@ -20,15 +17,13 @@ using Oceananigans.TurbulenceClosures
 const Lx = 1000kilometers # zonal domain length [m]
 const Ly = 2000kilometers # meridional domain length [m]
 
-CUDA.device!(1)
-
 # Architecture
 arch = GPU()
 
 # number of grid points
 Nx = 400
 Ny = 800
-Nz = 30
+Nz = 50
 
 # stretched grid 
 k_center = collect(1:Nz)
@@ -112,7 +107,6 @@ coriolis = BetaPlane(f₀ = f, β = β)
 @inline initial_buoyancy(z, p) = p.ΔB * (exp(z / p.h) - exp(-p.Lz / p.h)) / (1 - exp(-p.Lz / p.h))
 @inline mask(y, p) = max(0.0, y - p.y_sponge) / (Ly - p.y_sponge)
 
-
 @inline function buoyancy_relaxation(i, j, k, grid, clock, model_fields, p)
     timescale = p.λt
     y = ynode(Center(), j, grid)
@@ -130,16 +124,7 @@ Fb = Forcing(buoyancy_relaxation, discrete_form = true, parameters = parameters)
 κz = 1e-7   # [m²/s] vertical diffusivity
 νz = 1e-5   # [m²/s] vertical viscosity
 
-using Oceananigans.Operators: Δx, Δy
-
-@inline νhb_func(i, j, k, grid, lx, ly, lz, clock, fields) = 
-        (1 / (1 / Δx(i, j, k, grid, lx, ly, lz)^2 + 1 / Δy(i, j, k, grid, lx, ly, lz)^2 ))^2 / 5days
-
-@show νh = CUDA.@allowscalar νhb_func(1, 1, 1, grid, Center(), Center(), Center(), 1, 1)
-
-horizontal_closure = HorizontalDivergenceScalarBiharmonicDiffusivity(ν = νh)
-vertical_closure   = VerticalScalarDiffusivity(ν = νz, κ = κz)
-
+vertical_closure      = VerticalScalarDiffusivity(ν = νz, κ = κz)
 convective_adjustment = ConvectiveAdjustmentVerticalDiffusivity(convective_κz = 1.0)
 
 #####
@@ -149,13 +134,13 @@ convective_adjustment = ConvectiveAdjustmentVerticalDiffusivity(convective_κz =
 @info "Building a model..."
 
 model = HydrostaticFreeSurfaceModel(grid = grid,
-                                    free_surface = ImplicitFreeSurface(),
-                                    momentum_advection = WENO(grid),
-                                    tracer_advection = WENO(grid),
+                                    free_surface = SplitExplicitFreeSurface(; cfl = 0.75, grid),
+                                    momentum_advection = WENO(; order = 7),
+                                    tracer_advection = WENO(; order = 7),
                                     buoyancy = BuoyancyTracer(),
                                     coriolis = coriolis,
-                                    closure = convective_adjustment,
-                                    tracers = (:b, :c),
+                                    closure = (convective_adjustment, vertical_closure),
+                                    tracers = :b,
                                     boundary_conditions = (b = b_bcs, u = u_bcs, v = v_bcs),
                                     forcing = (; b = Fb))
 
@@ -174,13 +159,14 @@ set!(model, b = bᵢ)
 #####
 ##### Simulation building
 #####
+
 Δt₀ = 1minutes
 stop_time = 100years
 
 simulation = Simulation(model, Δt = Δt₀, stop_time = stop_time)
 
 # add timestep wizard callback
-wizard = TimeStepWizard(cfl=0.1, max_change=1.1, max_Δt=3minutes)
+wizard = TimeStepWizard(cfl=0.35, max_change=1.1, max_Δt=20minutes)
 simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10))
 
 # add progress callback
@@ -234,9 +220,9 @@ averaged_outputs = (; v′b′, w′b′, B)
 #####
 
 simulation.output_writers[:checkpointer] = Checkpointer(model,
-    schedule = TimeInterval(100days),
-    prefix = "abernathey_channel",
-    overwrite_existing = true)
+                                                        schedule = TimeInterval(100days),
+                                                        prefix = "abernathey_channel",
+                                                        overwrite_existing = true)
 
 simulation.output_writers[:averages] = JLD2OutputWriter(model, averaged_outputs,
                                                         schedule = AveragedTimeInterval(1days, window = 1days, stride = 1),
@@ -252,103 +238,3 @@ catch err
     @info "run! threw an error! The error message is"
     showerror(stdout, err)
 end
-
-# #####
-# ##### Visualization
-# #####
-
-using Plots
-
-grid = RectilinearGrid(CPU(),
-                       topology = (Periodic, Bounded, Bounded),
-                       size = (grid.Nx, grid.Ny, grid.Nz),
-                       halo = (5, 5, 5),
-                       x = (0, grid.Lx),
-                       y = (0, grid.Ly),
-                       z = z_faces)
-
-xζ, yζ, zζ = nodes((Face, Face, Center), grid)
-xc, yc, zc = nodes((Center, Center, Center), grid)
-xw, yw, zw = nodes((Center, Center, Face), grid)
-
-j′ = round(Int, grid.Ny / 2)
-y′ = yζ[j′]
-
-b_timeseries = FieldTimeSeries("abernathey_channel.jld2", "b", grid = grid)
-ζ_timeseries = FieldTimeSeries("abernathey_channel.jld2", "ζ", grid = grid)
-w_timeseries = FieldTimeSeries("abernathey_channel.jld2", "w", grid = grid)
-
-@show b_timeseries
-
-anim = @animate for i in 1:length(b_timeseries.times)
-    b = b_timeseries[i]
-    ζ = ζ_timeseries[i]
-    w = w_timeseries[i]
-
-    b′ = interior(b) .- mean(b)
-    b_xy = b′[:, :, grid.Nz]
-    ζ_xy = interior(ζ)[:, :, grid.Nz]
-    ζ_xz = interior(ζ)[:, j′, :]
-    w_xz = interior(w)[:, j′, :]
-
-    @show bmax = max(1e-9, maximum(abs, b_xy))
-    @show ζmax = max(1e-9, maximum(abs, ζ_xy))
-    @show wmax = max(1e-9, maximum(abs, w_xz))
-
-    blims = (-bmax, bmax) .* 0.8
-    ζlims = (-ζmax, ζmax) .* 0.8
-    wlims = (-wmax, wmax) .* 0.8
-
-    blevels = vcat([-bmax], range(blims[1], blims[2], length = 31), [bmax])
-    ζlevels = vcat([-ζmax], range(ζlims[1], ζlims[2], length = 31), [ζmax])
-    wlevels = vcat([-wmax], range(wlims[1], wlims[2], length = 31), [wmax])
-
-    xlims = (-grid.Lx / 2, grid.Lx / 2) .* 1e-3
-    ylims = (0, grid.Ly) .* 1e-3
-    zlims = (-grid.Lz, 0)
-
-    w_xz_plot = contourf(xw * 1e-3, zw, w_xz',
-        xlabel = "x (km)",
-        ylabel = "z (m)",
-        aspectratio = 0.05,
-        linewidth = 0,
-        levels = wlevels,
-        clims = wlims,
-        xlims = xlims,
-        ylims = zlims,
-        color = :balance)
-
-    ζ_xy_plot = contourf(xζ * 1e-3, yζ * 1e-3, ζ_xy',
-        xlabel = "x (km)",
-        ylabel = "y (km)",
-        aspectratio = :equal,
-        linewidth = 0,
-        levels = ζlevels,
-        clims = ζlims,
-        xlims = xlims,
-        ylims = ylims,
-        color = :balance)
-
-    b_xy_plot = contourf(xc * 1e-3, yc * 1e-3, b_xy',
-        xlabel = "x (km)",
-        ylabel = "y (km)",
-        aspectratio = :equal,
-        linewidth = 0,
-        levels = blevels,
-        clims = blims,
-        xlims = xlims,
-        ylims = ylims,
-        color = :balance)
-
-    w_xz_title = @sprintf("w(x, z) at t = %s", prettytime(ζ_timeseries.times[i]))
-    ζ_xz_title = @sprintf("ζ(x, z) at t = %s", prettytime(ζ_timeseries.times[i]))
-    ζ_xy_title = "ζ(x, y)"
-    b_xy_title = "b(x, y)"
-
-    layout = @layout [upper_slice_plot{0.2h}
-        Plots.grid(1, 2)]
-
-    plot(w_xz_plot, ζ_xy_plot, b_xy_plot, layout = layout, size = (1200, 1200), title = [w_xz_title ζ_xy_title b_xy_title])
-end
-
-mp4(anim, "abernathey_channel.mp4", fps = 8) # hide
