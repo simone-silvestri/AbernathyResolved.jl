@@ -69,15 +69,15 @@ cᵖ = 3994.0   # [J/K]  heat capacity
 parameters = (
     Ly = grid.Ly,
     Lz = grid.Lz,
-    Qᵇ = 10 / (ρ * cᵖ) * α * g,          # buoyancy flux magnitude [m² s⁻³]    
-    y_shutoff = 5 / 6 * Ly,              # shutoff location for buoyancy flux [m]
-    τ = 0.1 / ρ,                         # surface kinematic wind stress [m² s⁻²]
-    μ = 1 / 30days,                      # bottom drag damping time-scale [s⁻¹]
-    ΔB = 8 * α * g,                      # surface vertical buoyancy gradient [s⁻²]
-    H = Lz,                              # domain depth [m]
-    h = 1000.0,                          # exponential decay scale of stable stratification [m]
-    y_sponge = 19 / 20 * Ly,             # southern boundary of sponge layer [m]
-    λt = 7.0days                         # relaxation time scale [s]
+    Qᵇ = 10 / (ρ * cᵖ) * α * g,     # buoyancy flux magnitude [m² s⁻³]    
+    y_shutoff = 5 / 6 *  grid.Ly,   # shutoff location for buoyancy flux [m]
+    τ = 0.1 / ρ,                    # surface kinematic wind stress [m² s⁻²]
+    μ = 1 / 30days,                 # bottom drag damping time-scale [s⁻¹]
+    ΔB = 8 * α * g,                 # surface vertical buoyancy gradient [s⁻²]
+    H =  grid.Lz,                   # domain depth [m]
+    h = 1000.0,                     # exponential decay scale of stable stratification [m]
+    y_sponge = 19 / 20 *  grid.Ly,  # southern boundary of sponge layer [m]
+    λt = 7.0days                    # relaxation time scale [s]
 )
 
 @inline function buoyancy_flux(i, j, grid, clock, model_fields, p)
