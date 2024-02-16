@@ -67,8 +67,8 @@ cᵖ = 3994.0   # [J/K]  heat capacity
 ρ  = 999.8    # [kg/m³] reference density
 
 parameters = (
-    Ly = Ly,
-    Lz = Lz,
+    Ly = grid.Ly,
+    Lz = grid.Lz,
     Qᵇ = 10 / (ρ * cᵖ) * α * g,          # buoyancy flux magnitude [m² s⁻³]    
     y_shutoff = 5 / 6 * Ly,              # shutoff location for buoyancy flux [m]
     τ = 0.1 / ρ,                         # surface kinematic wind stress [m² s⁻²]
