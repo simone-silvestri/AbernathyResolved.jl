@@ -26,14 +26,27 @@ Nx = 400
 Ny = 800
 Nz = 50
 
-# stretched grid 
-k_center = collect(1:Nz)
-Δz_center = @. 10 * 1.125^(Nz - k_center)
+"""
+    function exponential_z_faces(; Nz = 69, Lz = 4000.0, e_folding = 0.06704463421863584)
 
-const Lz = sum(Δz_center)
+generates an array of exponential z faces 
 
-z_faces = vcat([-Lz], -Lz .+ cumsum(Δz_center))
-z_faces[Nz+1] = 0
+"""
+function exponential_z_faces(; Nz = 50, Lz = 5000.0, e_folding = 0.06704463421863584)
+    z_faces   = zeros(Nz + 1)
+    Nconstant = 11
+
+    z_faces[1:Nconstant] .= 0:5:50
+
+    for i in 1:(Nz + 1 - Nconstant)
+        z_faces[i + Nconstant] = z_faces[i - 1 + Nconstant] + 5 * exp(e_folding * i)
+    end
+
+    z_faces    = - reverse(z_faces)
+    z_faces[1] = - Lz
+
+    return z_faces
+end
 
 grid = RectilinearGrid(arch,
                        topology = (Periodic, Bounded, Bounded),
@@ -41,7 +54,7 @@ grid = RectilinearGrid(arch,
                        halo = (6, 6, 6),
                        x = (0, Lx),
                        y = (0, Ly),
-                       z = z_faces)
+                       z = exponential_z_faces(; Nz))
 
 @info "Built a grid: $grid."
 
