@@ -166,7 +166,7 @@ model = HydrostaticFreeSurfaceModel(grid = grid,
 
 # resting initial condition
 ε(σ) = σ * randn()
-bᵢ(x, y, z) = parameters.ΔB * (exp(z / parameters.h) - exp(-Lz / parameters.h)) / (1 - exp(-Lz / parameters.h)) + ε(1e-8)
+bᵢ(x, y, z) = parameters.ΔB * (exp(z / parameters.h) - exp(-grid.Lz / parameters.h)) / (1 - exp(-grid.Lz / parameters.h)) + ε(1e-8)
 
 set!(model, b = bᵢ)
 
