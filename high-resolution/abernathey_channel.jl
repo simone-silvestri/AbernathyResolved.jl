@@ -122,8 +122,8 @@ coriolis = BetaPlane(f₀ = f, β = β)
 
 @inline function buoyancy_relaxation(i, j, k, grid, clock, model_fields, p)
     timescale = p.λt
-    y = ynode(Center(), j, grid)
-    z = znode(Center(), k, grid)
+    y = ynode(j, grid, Center())
+    z = znode(k, grid, Center())
     target_b = initial_buoyancy(z, p)
     b = @inbounds model_fields.b[i, j, k]
 
