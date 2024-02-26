@@ -14,12 +14,15 @@ using Oceananigans.Grids: xnode, ynode, znode
 using Oceananigans.Operators
 using Oceananigans.TurbulenceClosures
 using Oceananigans.Models.HydrostaticFreeSurfaceModels: ZStar, ZStarSpacingGrid
+using Oceananigans.Utils: ConsecutiveIterations
 
 const Lx = 1000kilometers # zonal domain length [m]
 const Ly = 2000kilometers # meridional domain length [m]
 
 # Architecture
 arch = GPU()
+
+years = 365days
 
 # number of grid points
 Nx = 200
@@ -72,7 +75,7 @@ parameters = (
     Qᵇ = 10 / (ρ * cᵖ) * α * g,     # buoyancy flux magnitude [m² s⁻³]    
     y_shutoff = 5 / 6 *  grid.Ly,   # shutoff location for buoyancy flux [m]
     τ = 0.1 / ρ,                    # surface kinematic wind stress [m² s⁻²]
-    μ = 1 / 30days,                 # bottom drag damping time-scale [s⁻¹]
+    μ = 0.003,                      # bottom drag damping time-scale [s⁻¹]
     ΔB = 8 * α * g,                 # surface vertical buoyancy gradient [s⁻²]
     H =  grid.Lz,                   # domain depth [m]
     h = 1000.0,                     # exponential decay scale of stable stratification [m]
@@ -87,6 +90,19 @@ end
 
 buoyancy_flux_bc = FluxBoundaryCondition(buoyancy_flux, discrete_form = true, parameters = parameters)
 
+@inline initial_buoyancy(z, p) = p.ΔB * (exp(z / p.h) - exp(-p.Lz / p.h)) / (1 - exp(-p.Lz / p.h))
+
+@inline function buoyancy_relaxation(i, k, grid, clock, model_fields, p)
+    timescale = p.λt
+    z = znode(k, grid, Center())
+    target_b = initial_buoyancy(z, p)
+    b = @inbounds model_fields.b[i, grid.Ny, k]
+
+    return Δyᶜᶜᶜ(i, grid.Ny, k, grid) / timescale * (b - target_b)
+end
+
+buoyancy_restoring_bc = FluxBoundaryCondition(buoyancy_relaxation, discrete_form = true, parameters = parameters)
+
 @inline function u_stress(i, j, grid, clock, model_fields, p)
     y = ynode(j, grid, Center())
     return -p.τ * sin(π * y / p.Ly)
@@ -94,13 +110,18 @@ end
 
 u_stress_bc = FluxBoundaryCondition(u_stress, discrete_form = true, parameters = parameters)
 
-@inline u_drag(i, j, grid, clock, model_fields, p) = @inbounds -p.μ * p.Lz * model_fields.u[i, j, 1]
-@inline v_drag(i, j, grid, clock, model_fields, p) = @inbounds -p.μ * p.Lz * model_fields.v[i, j, 1]
+@inline ϕ²(i, j, k, grid, ϕ) = @inbounds ϕ[i, j, k]^2
+
+@inline speedᶠᶜᶜ(i, j, k, grid, U) = sqrt(ℑxyᶠᶜᵃ(i, j, k, grid, ϕ², U.v) + U.u[i, j, k]^2)
+@inline speedᶜᶠᶜ(i, j, k, grid, U) = sqrt(ℑxyᶜᶠᵃ(i, j, k, grid, ϕ², U.u) + U.v[i, j, k]^2)
+
+@inline u_drag(i, j, grid, clock, model_fields, p) = @inbounds -p.μ * speedᶠᶜᶜ(i, j, 1, grid, model_fields) * model_fields.u[i, j, 1]
+@inline v_drag(i, j, grid, clock, model_fields, p) = @inbounds -p.μ * speedᶜᶠᶜ(i, j, 1, grid, model_fields) * model_fields.v[i, j, 1]
 
 u_drag_bc = FluxBoundaryCondition(u_drag, discrete_form = true, parameters = parameters)
 v_drag_bc = FluxBoundaryCondition(v_drag, discrete_form = true, parameters = parameters)
 
-b_bcs = FieldBoundaryConditions(top = buoyancy_flux_bc)
+b_bcs = FieldBoundaryConditions(top = buoyancy_flux_bc, north = buoyancy_restoring_bc)
 
 u_bcs = FieldBoundaryConditions(top = u_stress_bc, bottom = u_drag_bc)
 v_bcs = FieldBoundaryConditions(bottom = v_drag_bc)
@@ -117,21 +138,6 @@ coriolis = BetaPlane(f₀ = f, β = β)
 ##### Forcing and initial condition
 #####
 
-@inline initial_buoyancy(z, p) = p.ΔB * (exp(z / p.h) - exp(-p.Lz / p.h)) / (1 - exp(-p.Lz / p.h))
-@inline mask(y, p) = max(0.0, y - p.y_sponge) / (Ly - p.y_sponge)
-
-@inline function buoyancy_relaxation(i, j, k, grid, clock, model_fields, p)
-    timescale = p.λt
-    y = ynode(j, grid, Center())
-    z = znode(k, grid, Center())
-    target_b = initial_buoyancy(z, p)
-    b = @inbounds model_fields.b[i, j, k]
-
-    return -1 / timescale * mask(y, p) * (b - target_b)
-end
-
-Fb = Forcing(buoyancy_relaxation, discrete_form = true, parameters = parameters)
-
 # closure
 
 κz = 1e-7   # [m²/s] vertical diffusivity
@@ -144,19 +150,21 @@ convective_adjustment = ConvectiveAdjustmentVerticalDiffusivity(convective_κz =
 ##### Model building
 #####
 
+momentum = VectorInvariant(vorticity_scheme = WENO(; order = 9),
+                            vertical_scheme = WENO(grid))
+
 @info "Building a model..."
 
 model = HydrostaticFreeSurfaceModel(grid = grid,
                                     free_surface = SplitExplicitFreeSurface(; cfl = 0.75, grid),
-                                    momentum_advection = WENO(grid; order = 7),
+                                    momentum_advection = momentum,
                                     tracer_advection   = WENO(grid; order = 7),
                                     buoyancy = BuoyancyTracer(),
                                     coriolis = coriolis,
                                     generalized_vertical_coordinate = ZStar(),
                                     closure = (convective_adjustment, vertical_closure),
                                     tracers = :b,
-                                    boundary_conditions = (b = b_bcs, u = u_bcs, v = v_bcs),
-                                    forcing = (; b = Fb))
+                                    boundary_conditions = (b = b_bcs, u = u_bcs, v = v_bcs))
 
 @info "Built $model."
 
@@ -180,7 +188,7 @@ stop_time = 360000days
 simulation = Simulation(model, Δt = Δt₀, stop_time = stop_time)
 
 # add timestep wizard callback
-wizard = TimeStepWizard(cfl=0.25, max_change=1.1, max_Δt=20minutes)
+wizard = TimeStepWizard(cfl=0.25, max_change=1.1, max_Δt=15minutes)
 simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10))
 
 # add progress callback
@@ -236,16 +244,22 @@ simulation.output_writers[:checkpointer] = Checkpointer(model,
                                                         prefix = "abernathey_channel",
                                                         overwrite_existing = true)
 
-# simulation.output_writers[:averages] = JLD2OutputWriter(model, averaged_outputs,
-#                                                         schedule = AveragedTimeInterval(1days, window = 1days, stride = 1),
-#                                                         filename = "abernathey_channel_averages",
-#                                                         verbose = true,
-#                                                         overwrite_existing = true)
+simulation.output_writers[:snapshots] = JLD2OutputWriter(model, merge(model.velocities, model.tracers, (; Δz = model.grid.Δzᵃᵃᶠ.Δ)), 
+                                                         schedule = ConsecutiveIterations(TimeInterval(30days)),
+                                                         filename = "abernathey_channel_snapshots",
+                                                         verbose = true,
+                                                         overwrite_existing = true)
+
+simulation.output_writers[:averages] = JLD2OutputWriter(model, averaged_outputs, 
+                                                        schedule = AveragedTimeInterval(5years, stride = 10),
+                                                        filename = "abernathey_channel_averages",
+                                                        verbose = true,
+                                                        overwrite_existing = true)
 
 @info "Running the simulation..."
 
 try
-    run!(simulation, pickup = false)
+    run!(simulation, pickup = "abernathey_channel_iteration19343877.jld2")
 catch err
     @info "run! threw an error! The error message is"
     showerror(stdout, err)
