@@ -20,6 +20,8 @@ using Oceananigans.Utils: ConsecutiveIterations
 const Lx = 1000kilometers # zonal domain length [m]
 const Ly = 2000kilometers # meridional domain length [m]
 
+CUDA.device!(1)
+
 # Architecture
 arch = GPU()
 
@@ -184,7 +186,7 @@ set!(model, b = bᵢ)
 #####
 
 Δt₀ = 1minutes
-stop_time = 100 * 360days
+stop_time = 500 * 360days # Run for 500 years!
 
 simulation = Simulation(model, Δt = Δt₀, stop_time = 10days)
 
