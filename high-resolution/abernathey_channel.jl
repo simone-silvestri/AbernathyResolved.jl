@@ -114,18 +114,18 @@ end
 
 u_stress_bc = FluxBoundaryCondition(u_stress; discrete_form = true, parameters)
 
-@inline u_drag(i, j, grid, clock, model_fields, p) = @inbounds - p.μ * model_fields.u[i, j, 1]
-@inline v_drag(i, j, grid, clock, model_fields, p) = @inbounds - p.μ * model_fields.v[i, j, 1]
-@inline u_west(i, k, grid, clock, model_fields, p) = @inbounds - 2 * p.ν / p.Δy * model_fields.u[i, 1, k]
-@inline u_east(i, k, grid, clock, model_fields, p) = @inbounds + 2 * p.ν / p.Δy * model_fields.u[i, grid.Ny, k]
+@inline  u_drag(i, j, grid, clock, model_fields, p) = @inbounds - p.μ * model_fields.u[i, j, 1]
+@inline  v_drag(i, j, grid, clock, model_fields, p) = @inbounds - p.μ * model_fields.v[i, j, 1]
+@inline u_south(i, k, grid, clock, model_fields, p) = @inbounds - 2 * p.ν / p.Δy * model_fields.u[i, 1, k]
+@inline u_north(i, k, grid, clock, model_fields, p) = @inbounds + 2 * p.ν / p.Δy * model_fields.u[i, grid.Ny, k]
 
-u_drag_bc = FluxBoundaryCondition(u_drag; discrete_form = true, parameters)
-v_drag_bc = FluxBoundaryCondition(v_drag; discrete_form = true, parameters)
-u_west_bc = FluxBoundaryCondition(u_west; discrete_form = true, parameters)
-u_east_bc = FluxBoundaryCondition(u_east; discrete_form = true, parameters)
+u_drag_bc  = FluxBoundaryCondition(u_drag;  discrete_form = true, parameters)
+v_drag_bc  = FluxBoundaryCondition(v_drag;  discrete_form = true, parameters)
+u_south_bc = FluxBoundaryCondition(u_south; discrete_form = true, parameters)
+u_north_bc = FluxBoundaryCondition(u_north; discrete_form = true, parameters)
 
 b_bcs = FieldBoundaryConditions(top = buoyancy_flux_bc)
-u_bcs = FieldBoundaryConditions(west = u_west_bc, east = u_east_bc, top = u_stress_bc, bottom = u_drag_bc)
+u_bcs = FieldBoundaryConditions(south = u_south_bc, north = u_north_bc, top = u_stress_bc, bottom = u_drag_bc)
 v_bcs = FieldBoundaryConditions(bottom = v_drag_bc)
 
 #####
