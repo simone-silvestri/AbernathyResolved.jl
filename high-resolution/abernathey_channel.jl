@@ -132,9 +132,7 @@ v_bcs = FieldBoundaryConditions(bottom = v_drag_bc)
 ##### Coriolis
 #####
 
-const f = -1e-4
-const β = 1e-11
-coriolis = BetaPlane(f₀ = f, β = β)
+coriolis = BetaPlane(f₀ = -1e-4, β = 1e-11)
 
 #####
 ##### Forcing and initial condition
