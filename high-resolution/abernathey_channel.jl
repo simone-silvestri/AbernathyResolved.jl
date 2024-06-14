@@ -151,13 +151,13 @@ closure = (XinKaiVerticalDiffusivity(), horizontal_biharmonic, horizontal_laplac
 ##### Model building
 #####
 
-momentum_advection = nothing # VectorInvariant(vertical_scheme = Centered(),
-                             #         vorticity_scheme = WENO(; order = 7),
-                             #         divergence_scheme = WENO())
+momentum_advection = VectorInvariant(vertical_scheme = Centered(),
+                             vorticity_scheme = WENO(; order = 7),
+                             divergence_scheme = WENO())
 
 @info "Building a model..."
 
-tracer_advection = nothing # WENO(grid; order = 7)
+tracer_advection = WENO(grid; order = 7)
 
 free_surface = SplitExplicitFreeSurface(grid; substeps = 60)
 
@@ -166,9 +166,9 @@ model = HydrostaticFreeSurfaceModel(; grid,
                                       momentum_advection,
                                       tracer_advection,
                                       buoyancy = BuoyancyTracer(),
-                                      coriolis = FPlane(f = -1e-4),
+                                      coriolis,
 #                                      generalized_vertical_coordinate = ZStar(),
-                                    #   closure,
+                                      closure,
                                       tracers = :b,
                                       forcing = (; b = buoyancy_restoring),
                                       boundary_conditions = (b = b_bcs, u = u_bcs, v = v_bcs))
@@ -180,9 +180,8 @@ model = HydrostaticFreeSurfaceModel(; grid,
 #####
 
 # resting initial condition
-ε(σ) = σ * randn()
 bᵢ(x, y, z) = parameters.ΔB * (exp(z / parameters.h) - exp(-grid.Lz / parameters.h)) / 
-                                                  (1 - exp(-grid.Lz / parameters.h)) + ε(1e-8)
+                                                  (1 - exp(-grid.Lz / parameters.h)) 
 
 set!(model, b = bᵢ) 
 
