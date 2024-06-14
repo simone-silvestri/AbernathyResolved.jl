@@ -168,7 +168,7 @@ model = HydrostaticFreeSurfaceModel(; grid,
                                       tracer_advection,
                                       buoyancy = BuoyancyTracer(),
                                       coriolis,
-#                                      generalized_vertical_coordinate = ZStar(),
+                                    #   generalized_vertical_coordinate = ZStar(),
                                       closure,
                                       tracers = :b,
                                       forcing = (; b = buoyancy_restoring),
@@ -182,7 +182,7 @@ model = HydrostaticFreeSurfaceModel(; grid,
 
 # resting initial condition
 bᵢ(x, y, z) = parameters.ΔB * (exp(z / parameters.h) - exp(-grid.Lz / parameters.h)) / 
-                                                  (1 - exp(-grid.Lz / parameters.h)) 
+                              (1 - exp(-grid.Lz / parameters.h)) * (1 + cos(20π * x / Lx) / 100)
 
 set!(model, b = bᵢ) 
 
