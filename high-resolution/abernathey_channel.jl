@@ -147,8 +147,6 @@ horizontal_biharmonic = HorizontalScalarBiharmonicDiffusivity(ν = Δ^4 / 15days
 horizontal_laplacian  = HorizontalScalarDiffusivity(κ = 100)
 closure = (XinKaiVerticalDiffusivity(), horizontal_biharmonic, horizontal_laplacian)
 
-closure = CUDA.cuLinkAddData_v2
-
 #####
 ##### Model building
 #####
@@ -168,7 +166,7 @@ model = HydrostaticFreeSurfaceModel(; grid,
                                       momentum_advection,
                                       tracer_advection,
                                       buoyancy = BuoyancyTracer(),
-                                      coriolis,
+                                      coriolis = FPlane(f = -1e-4),
 #                                      generalized_vertical_coordinate = ZStar(),
                                     #   closure,
                                       tracers = :b,
