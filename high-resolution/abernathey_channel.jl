@@ -193,11 +193,7 @@ set!(model, b = bᵢ)
 Δt₀ = 1minutes
 stop_time = 500 * 360days # Run for 500 years!
 
-simulation = Simulation(model, Δt = Δt₀, stop_time = 10days)
-
-# add timestep wizard callback
-wizard = TimeStepWizard(cfl=0.1, max_change=1.1, max_Δt=15minutes)
-simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10))
+simulation = Simulation(model; Δt = Δt₀, stop_time)
 
 # add progress callback
 wall_clock = [time_ns()]
@@ -219,10 +215,6 @@ end
 
 simulation.callbacks[:print_progress] = Callback(print_progress, IterationInterval(20))
 
-# run!(simulation)
-
-simulation.stop_time = stop_time
-
 wizard = TimeStepWizard(cfl=0.3, max_change=1.1, max_Δt=10minutes)
 simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10))
 
@@ -230,25 +222,25 @@ simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10))
 ##### Diagnostics
 #####
 
-u, v, w = model.velocities
-b = model.tracers.b
+# u, v, w = model.velocities
+# b = model.tracers.b
 
-ζ = Field(∂x(v) - ∂y(u))
+# ζ = Field(∂x(v) - ∂y(u))
 
-B = Field(Average(b, dims = 1))
-V = Field(Average(v, dims = 1))
-W = Field(Average(w, dims = 1))
+# B = Field(Average(b, dims = 1))
+# V = Field(Average(v, dims = 1))
+# W = Field(Average(w, dims = 1))
 
-b′ = b - B
-v′ = v - V
-w′ = w - W
+# b′ = b - B
+# v′ = v - V
+# w′ = w - W
 
-v′b′ = Field(Average(v′ * b′, dims = 1))
-w′b′ = Field(Average(w′ * b′, dims = 1))
+# v′b′ = Field(Average(v′ * b′, dims = 1))
+# w′b′ = Field(Average(w′ * b′, dims = 1))
 
-outputs = (; b, ζ, w)
+# outputs = (; b, ζ, w)
 
-averaged_outputs = (; v′b′, w′b′, B)
+# averaged_outputs = (; v′b′, w′b′, B)
 
 # grid_variables = (; sⁿ = model.grid.Δzᵃᵃᶠ.sⁿ, ∂t_∂s = model.grid.Δzᵃᵃᶠ.∂t_∂s)
 snapshot_outputs = merge(model.velocities, model.tracers)
