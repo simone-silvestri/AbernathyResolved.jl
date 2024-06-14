@@ -147,19 +147,21 @@ horizontal_biharmonic = HorizontalScalarBiharmonicDiffusivity(ν = Δ^4 / 15days
 horizontal_laplacian  = HorizontalScalarDiffusivity(κ = 100)
 closure = (XinKaiVerticalDiffusivity(), horizontal_biharmonic, horizontal_laplacian)
 
+closure = CUDA.cuLinkAddData_v2
+
 #####
 ##### Model building
 #####
 
-momentum_advection = Centered() #VectorInvariant(vertical_scheme = Centered(),
-                                #   vorticity_scheme = WENO(; order = 7),
-                                #   divergence_scheme = WENO())
+momentum_advection = VectorInvariant(vertical_scheme = Centered(),
+                                     vorticity_scheme = WENO(; order = 7),
+                                     divergence_scheme = WENO())
 
 @info "Building a model..."
 
-tracer_advection = Centered() # WENO(grid; order = 7)
+tracer_advection = WENO(grid; order = 7)
 
-free_surface = SplitExplicitFreeSurface(grid; cfl = 0.7, fixed_Δt = 15minutes)
+free_surface = SplitExplicitFreeSurface(grid; substeps = 60)
 
 model = HydrostaticFreeSurfaceModel(; grid,
                                       free_surface,
@@ -215,7 +217,7 @@ end
 
 simulation.callbacks[:print_progress] = Callback(print_progress, IterationInterval(20))
 
-wizard = TimeStepWizard(cfl=0.3, max_change=1.1, max_Δt=10minutes)
+wizard = TimeStepWizard(cfl=0.2, max_change=1.1, max_Δt=5minutes)
 simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10))
 
 #####
