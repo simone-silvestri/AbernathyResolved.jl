@@ -14,7 +14,7 @@ using Oceananigans.OutputReaders: FieldTimeSeries
 using Oceananigans.Grids: xnode, ynode, znode
 using Oceananigans.Operators
 using Oceananigans.TurbulenceClosures
-# using Oceananigans.Models.HydrostaticFreeSurfaceModels: ZStar, ZStarSpacingGrid
+using Oceananigans.Models.HydrostaticFreeSurfaceModels: ZStar, ZStarSpacingGrid
 using Oceananigans.Utils: ConsecutiveIterations
 
 const Lx = 1000kilometers # zonal domain length [m]
@@ -160,7 +160,7 @@ momentum_advection = VectorInvariant(vertical_scheme = Centered(),
 
 tracer_advection = WENO(grid; order = 7)
 
-free_surface = SplitExplicitFreeSurface(grid; substeps = 60)
+free_surface = SplitExplicitFreeSurface(grid; substeps = 90)
 
 model = HydrostaticFreeSurfaceModel(; grid,
                                       free_surface,
@@ -168,7 +168,7 @@ model = HydrostaticFreeSurfaceModel(; grid,
                                       tracer_advection,
                                       buoyancy = BuoyancyTracer(),
                                       coriolis,
-                                    #   generalized_vertical_coordinate = ZStar(),
+                                      generalized_vertical_coordinate = ZStar(),
                                       closure,
                                       tracers = :b,
                                       forcing = (; b = buoyancy_restoring),
@@ -215,7 +215,7 @@ end
 
 simulation.callbacks[:print_progress] = Callback(print_progress, IterationInterval(20))
 
-wizard = TimeStepWizard(cfl=0.2, max_change=1.1, max_Δt=5minutes)
+wizard = TimeStepWizard(cfl=0.3, max_change=1.1, max_Δt=15minutes)
 simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10))
 
 #####
@@ -242,9 +242,9 @@ simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10))
 
 # averaged_outputs = (; v′b′, w′b′, B)
 
-# grid_variables = (; sⁿ = model.grid.Δzᵃᵃᶠ.sⁿ, ∂t_∂s = model.grid.Δzᵃᵃᶠ.∂t_∂s)
+grid_variables = (; sⁿ = model.grid.Δzᵃᵃᶠ.sⁿ, ∂t_∂s = model.grid.Δzᵃᵃᶠ.∂t_∂s)
 snapshot_outputs = merge(model.velocities, model.tracers)
-# snapshot_outputs = merge(snapshot_outputs, grid_variables)
+snapshot_outputs = merge(snapshot_outputs, grid_variables)
 
 #####
 ##### Build checkpointer and output writer
