@@ -153,13 +153,13 @@ closure = CUDA.cuLinkAddData_v2
 ##### Model building
 #####
 
-momentum_advection = VectorInvariant(vertical_scheme = Centered(),
-                                     vorticity_scheme = WENO(; order = 7),
-                                     divergence_scheme = WENO())
+momentum_advection = nothing # VectorInvariant(vertical_scheme = Centered(),
+                             #         vorticity_scheme = WENO(; order = 7),
+                             #         divergence_scheme = WENO())
 
 @info "Building a model..."
 
-tracer_advection = WENO(grid; order = 7)
+tracer_advection = nothing # WENO(grid; order = 7)
 
 free_surface = SplitExplicitFreeSurface(grid; substeps = 60)
 
@@ -168,9 +168,9 @@ model = HydrostaticFreeSurfaceModel(; grid,
                                       momentum_advection,
                                       tracer_advection,
                                       buoyancy = BuoyancyTracer(),
-                                      coriolis = coriolis,
+                                      coriolis = nothing,
 #                                      generalized_vertical_coordinate = ZStar(),
-                                      closure,
+                                    #   closure,
                                       tracers = :b,
                                       forcing = (; b = buoyancy_restoring),
                                       boundary_conditions = (b = b_bcs, u = u_bcs, v = v_bcs))
