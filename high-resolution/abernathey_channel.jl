@@ -145,15 +145,16 @@ include("xin_kai_vertical_diffusivity.jl")
 
 horizontal_biharmonic = HorizontalScalarBiharmonicDiffusivity(ν = Δ^4 / 15days)
 horizontal_laplacian  = HorizontalScalarDiffusivity(κ = 100)
-closure = (XinKaiVerticalDiffusivity(), horizontal_biharmonic, horizontal_laplacian)
+
+closure = XinKaiVerticalDiffusivity()
 
 #####
 ##### Model building
 #####
 
 momentum_advection = VectorInvariant(vertical_scheme = Centered(),
-                             vorticity_scheme = WENO(; order = 7),
-                             divergence_scheme = WENO())
+                                     vorticity_scheme = WENO(; order = 7),
+                                     divergence_scheme = WENO())
 
 @info "Building a model..."
 
