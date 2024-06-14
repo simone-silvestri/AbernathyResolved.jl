@@ -125,7 +125,7 @@ u_south_bc = FluxBoundaryCondition(u_south; discrete_form = true, parameters)
 u_north_bc = FluxBoundaryCondition(u_north; discrete_form = true, parameters)
 
 b_bcs = FieldBoundaryConditions(top = buoyancy_flux_bc)
-u_bcs = FieldBoundaryConditions(south = u_south_bc, north = u_north_bc, top = u_stress_bc, bottom = u_drag_bc)
+u_bcs = FieldBoundaryConditions(top = u_stress_bc, bottom = u_drag_bc)
 v_bcs = FieldBoundaryConditions(bottom = v_drag_bc)
 
 #####
