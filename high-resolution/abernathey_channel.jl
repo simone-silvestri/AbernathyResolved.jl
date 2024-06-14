@@ -14,7 +14,7 @@ using Oceananigans.OutputReaders: FieldTimeSeries
 using Oceananigans.Grids: xnode, ynode, znode
 using Oceananigans.Operators
 using Oceananigans.TurbulenceClosures
-using Oceananigans.Models.HydrostaticFreeSurfaceModels: ZStar, ZStarSpacingGrid
+# using Oceananigans.Models.HydrostaticFreeSurfaceModels: ZStar, ZStarSpacingGrid
 using Oceananigans.Utils: ConsecutiveIterations
 
 const Lx = 1000kilometers # zonal domain length [m]
@@ -72,7 +72,7 @@ parameters = (
     Qᵇ  = 10 / (ρ * cᵖ) * α * g, # buoyancy flux magnitude [m² s⁻³]    
     y_shutoff = 5 / 6 * grid.Ly, # shutoff location for buoyancy flux [m] 
     τ  = 0.1 / ρ,                # surface kinematic wind stress [m² s⁻²]
-    μ  = 1.102e-3,               # bottom drag damping time-scale [s⁻¹]
+    μ  = 1.102e-3,               # bottom drag damping time-scale [ms⁻¹]
     Lsponge = 9 / 10 * Ly,       # sponge region for buoyancy restoring [m]
     ν  = 3e-4,                   # viscosity for "no-slip" boundary conditions
     ΔB = 8 * α * g,              # surface vertical buoyancy gradient [s⁻²]
@@ -140,17 +140,24 @@ coriolis = BetaPlane(f₀ = -1e-4, β = 1e-11)
 
 # closure
 include("xin_kai_vertical_diffusivity.jl")
-closure = XinKaiVerticalDiffusivity()
+
+Δ = 5e3
+
+horizontal_biharmonic = HorizontalScalarBiharmonicDiffusivity(ν = Δ^4 / 15days)
+horizontal_laplacian  = HorizontalScalarDiffusivity(κ = 100)
+closure = (XinKaiVerticalDiffusivity(), horizontal_biharmonic, horizontal_laplacian)
 
 #####
 ##### Model building
 #####
 
-momentum_advection = WENO(; order = 7) 
+momentum_advection = Centered() #VectorInvariant(vertical_scheme = Centered(),
+                                #   vorticity_scheme = WENO(; order = 7),
+                                #   divergence_scheme = WENO())
 
 @info "Building a model..."
 
-tracer_advection = WENO(; order = 7)
+tracer_advection = Centered() # WENO(grid; order = 7)
 
 free_surface = SplitExplicitFreeSurface(grid; cfl = 0.7, fixed_Δt = 15minutes)
 
@@ -160,7 +167,7 @@ model = HydrostaticFreeSurfaceModel(; grid,
                                       tracer_advection,
                                       buoyancy = BuoyancyTracer(),
                                       coriolis = coriolis,
-                                      generalized_vertical_coordinate = ZStar(),
+#                                      generalized_vertical_coordinate = ZStar(),
                                       closure,
                                       tracers = :b,
                                       forcing = (; b = buoyancy_restoring),
@@ -216,7 +223,7 @@ simulation.callbacks[:print_progress] = Callback(print_progress, IterationInterv
 
 simulation.stop_time = stop_time
 
-wizard = TimeStepWizard(cfl=0.3, max_change=1.1, max_Δt=15minutes)
+wizard = TimeStepWizard(cfl=0.3, max_change=1.1, max_Δt=10minutes)
 simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10))
 
 #####
@@ -243,9 +250,9 @@ outputs = (; b, ζ, w)
 
 averaged_outputs = (; v′b′, w′b′, B)
 
-grid_variables = (; sⁿ = model.grid.Δzᵃᵃᶠ.sⁿ, ∂t_∂s = model.grid.Δzᵃᵃᶠ.∂t_∂s)
+# grid_variables = (; sⁿ = model.grid.Δzᵃᵃᶠ.sⁿ, ∂t_∂s = model.grid.Δzᵃᵃᶠ.∂t_∂s)
 snapshot_outputs = merge(model.velocities, model.tracers)
-snapshot_outputs = merge(snapshot_outputs, grid_variables)
+# snapshot_outputs = merge(snapshot_outputs, grid_variables)
 
 #####
 ##### Build checkpointer and output writer
