@@ -161,7 +161,7 @@ momentum_advection = nothing # VectorInvariant(vertical_scheme = Centered(),
 
 tracer_advection = nothing # WENO(grid; order = 7)
 
-free_surface = SplitExplicitFreeSurface(grid; substeps = 60)
+free_surface = ImplicitFreeSurface() # SplitExplicitFreeSurface(grid; substeps = 60)
 
 model = HydrostaticFreeSurfaceModel(; grid,
                                       free_surface,
