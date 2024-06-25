@@ -6,24 +6,23 @@ function compute_χ_values(simulation)
     grid = model.grid
     arch = architecture(grid)
     b = model.tracers.b
-    χ, bⁿ⁻¹, Uⁿ⁻¹, ∂b² = model.auxiliary_fields
+    bⁿ⁻¹ = model.auxiliary_fields.bⁿ⁻¹
     
-    launch!(arch, grid, :xyz, _compute_dissipation!, χ, grid, advection, 
-            Uⁿ⁻¹, b, bⁿ⁻¹, ∂b²)
+    launch!(arch, grid, :xyz, _compute_dissipation!, model.auxiliary_fields, grid, advection, b, bⁿ⁻¹)
 
     return nothing
 end
 
-@kernel function _compute_dissipation!(χ, grid, advection, Uⁿ⁻¹, b, bⁿ⁻¹)
+@kernel function _compute_dissipation!(A, grid, advection, b, bⁿ⁻¹)
     i, j, k = @index(Global, NTuple)
 
-    @inbounds χ.u[i, j, k] = compute_χᵁ(i, j, k, grid, advection, Uⁿ⁻¹.u, b, bⁿ⁻¹)
-    @inbounds χ.v[i, j, k] = compute_χⱽ(i, j, k, grid, advection, Uⁿ⁻¹.v, b, bⁿ⁻¹)
-    @inbounds χ.w[i, j, k] = compute_χᵂ(i, j, k, grid, advection, Uⁿ⁻¹.w, b, bⁿ⁻¹)
+    @inbounds A.χu[i, j, k] = compute_χᵁ(i, j, k, grid, advection, A.uⁿ⁻¹, b, bⁿ⁻¹)
+    @inbounds A.χv[i, j, k] = compute_χⱽ(i, j, k, grid, advection, A.vⁿ⁻¹, b, bⁿ⁻¹)
+    @inbounds A.χw[i, j, k] = compute_χᵂ(i, j, k, grid, advection, A.wⁿ⁻¹, b, bⁿ⁻¹)
 
-    @inbounds ∂b².u[i, j, k] = Axᶠᶜᶜ(i, j, k, grid) * δxᶠᶜᶜ(i, j, k, grid, bⁿ⁻¹)^2 / Δxᶠᶜᶜ(i, j, k, grid)
-    @inbounds ∂b².v[i, j, k] = Ayᶜᶠᶜ(i, j, k, grid) * δyᶜᶠᶜ(i, j, k, grid, bⁿ⁻¹)^2 / Δyᶜᶠᶜ(i, j, k, grid)
-    @inbounds ∂b².w[i, j, k] = Azᶜᶜᶠ(i, j, k, grid) * δzᶜᶜᶠ(i, j, k, grid, bⁿ⁻¹)^2 / Δzᶜᶜᶠ(i, j, k, grid)
+    @inbounds A.∂xb²[i, j, k] = Axᶠᶜᶜ(i, j, k, grid) * δxᶠᶜᶜ(i, j, k, grid, bⁿ⁻¹)^2 / Δxᶠᶜᶜ(i, j, k, grid)
+    @inbounds A.∂yb²[i, j, k] = Ayᶜᶠᶜ(i, j, k, grid) * δyᶜᶠᶜ(i, j, k, grid, bⁿ⁻¹)^2 / Δyᶜᶠᶜ(i, j, k, grid)
+    @inbounds A.∂zb²[i, j, k] = Azᶜᶜᶠ(i, j, k, grid) * δzᶜᶜᶠ(i, j, k, grid, bⁿ⁻¹)^2 / Δzᶜᶜᶠ(i, j, k, grid)
 end
 
 @inline b★(i, j, k, grid, bⁿ, bⁿ⁻¹) = @inbounds (bⁿ[i, j, k] + bⁿ⁻¹[i, j, k]) / 2

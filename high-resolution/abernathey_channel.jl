@@ -162,6 +162,17 @@ Uⁿ⁻¹ = VelocityFields(grid)
 χ    = VelocityFields(grid)
 ∂b²  = VelocityFields(grid)
 
+auxiliary_fields = (; bⁿ⁻¹, 
+                      uⁿ⁻¹ = Uⁿ⁻¹.u,
+                      vⁿ⁻¹ = Uⁿ⁻¹.v,
+                      wⁿ⁻¹ = Uⁿ⁻¹.w,
+                      χu   = χ.u,
+                      χv   = χ.v,
+                      χw   = χ.w,
+                      ∂xb² = ∂b².u,
+                      ∂yb² = ∂b².v,
+                      ∂zb² = ∂b².w)
+
 model = HydrostaticFreeSurfaceModel(; grid,
                                       free_surface,
                                       momentum_advection,
@@ -172,7 +183,7 @@ model = HydrostaticFreeSurfaceModel(; grid,
                                       closure,
                                       tracers = :b,
                                       forcing = (; b = buoyancy_restoring),
-                                      auxiliary_fields = (; bⁿ⁻¹, Uⁿ⁻¹, χ, ∂b²),
+                                      auxiliary_fields,
                                       boundary_conditions = (b = b_bcs, u = u_bcs, v = v_bcs))
 
 @info "Built $model."
@@ -244,15 +255,15 @@ b = model.tracers.b
 outputs = (; u, v, w, b)
 
 averaged_outputs = (; bⁿ⁻¹, 
-                      u = Uⁿ⁻¹.u,
-                      v = Uⁿ⁻¹.v,
-                      w = Uⁿ⁻¹.w,
-                      Pu = χ.u,
-                      Pv = χ.v,
-                      Pw = χ.w,
-                      ∂xb² = ∂b².u,
-                      ∂yb² = ∂b².v,
-                      ∂zb² = ∂b².w)
+                      u = uⁿ⁻¹,
+                      v = vⁿ⁻¹,
+                      w = wⁿ⁻¹,
+                      Pu = χu,
+                      Pv = χv,
+                      Pw = χw,
+                      ∂xb²,
+                      ∂yb²,
+                      ∂zb²)
 
 grid_variables = (; sⁿ = model.grid.Δzᵃᵃᶠ.sⁿ, ∂t_∂s = model.grid.Δzᵃᵃᶠ.∂t_∂s)
 snapshot_outputs = merge(model.velocities, model.tracers)
