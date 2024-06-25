@@ -14,13 +14,17 @@ using Oceananigans.OutputReaders: FieldTimeSeries
 using Oceananigans.Grids: xnode, ynode, znode
 using Oceananigans.Operators
 using Oceananigans.TurbulenceClosures
-using Oceananigans.Models.HydrostaticFreeSurfaceModels: ZStar, ZStarSpacingGrid
+using Oceananigans.Advection: TracerAdvection
+using Oceananigans.Models.HydrostaticFreeSurfaceModels: ZStar, ZStarSpacingGrid, VelocityFields
 using Oceananigans.Utils: ConsecutiveIterations
+using KernelAbstractions: @kernel, @index
 
 const Lx = 1000kilometers # zonal domain length [m]
 const Ly = 2000kilometers # meridional domain length [m]
 
-CUDA.device!(1)
+CUDA.device!(3)
+
+include("compute_dissipation.jl")
 
 # Architecture
 arch = GPU()
@@ -116,13 +120,9 @@ u_stress_bc = FluxBoundaryCondition(u_stress; discrete_form = true, parameters)
 
 @inline  u_drag(i, j, grid, clock, model_fields, p) = @inbounds - p.μ * model_fields.u[i, j, 1]
 @inline  v_drag(i, j, grid, clock, model_fields, p) = @inbounds - p.μ * model_fields.v[i, j, 1]
-@inline u_south(i, k, grid, clock, model_fields, p) = @inbounds - 2 * p.ν / p.Δy * model_fields.u[i, 1, k]
-@inline u_north(i, k, grid, clock, model_fields, p) = @inbounds + 2 * p.ν / p.Δy * model_fields.u[i, grid.Ny, k]
 
 u_drag_bc  = FluxBoundaryCondition(u_drag;  discrete_form = true, parameters)
 v_drag_bc  = FluxBoundaryCondition(v_drag;  discrete_form = true, parameters)
-u_south_bc = FluxBoundaryCondition(u_south; discrete_form = true, parameters)
-u_north_bc = FluxBoundaryCondition(u_north; discrete_form = true, parameters)
 
 b_bcs = FieldBoundaryConditions(top = buoyancy_flux_bc)
 u_bcs = FieldBoundaryConditions(top = u_stress_bc, bottom = u_drag_bc)
@@ -141,26 +141,26 @@ coriolis = BetaPlane(f₀ = -1e-4, β = 1e-11)
 # closure
 include("xin_kai_vertical_diffusivity.jl")
 
-Δ = 5e3
-
-horizontal_biharmonic = HorizontalScalarBiharmonicDiffusivity(ν = Δ^4 / 15days)
-horizontal_laplacian  = HorizontalScalarDiffusivity(κ = 100)
-
 closure = XinKaiVerticalDiffusivity()
 
 #####
 ##### Model building
 #####
 
-momentum_advection = VectorInvariant(vertical_scheme = Centered(),
-                                     vorticity_scheme = WENO(; order = 7),
+momentum_advection = VectorInvariant(vertical_scheme   = Centered(),
+                                     vorticity_scheme  = WENO(; order = 9),
                                      divergence_scheme = WENO())
 
 @info "Building a model..."
 
-tracer_advection = WENO(grid; order = 7)
+tracer_advection = TracerAdvection(WENO(; order = 7), WENO(; order = 7), Centered())
 
 free_surface = SplitExplicitFreeSurface(grid; substeps = 90)
+
+bⁿ⁻¹ = CenterField(grid)
+Uⁿ⁻¹ = VelocityFields(grid)
+χ    = VelocityFields(grid)
+∂b²  = VelocityFields(grid)
 
 model = HydrostaticFreeSurfaceModel(; grid,
                                       free_surface,
@@ -172,6 +172,7 @@ model = HydrostaticFreeSurfaceModel(; grid,
                                       closure,
                                       tracers = :b,
                                       forcing = (; b = buoyancy_restoring),
+                                      auxiliary_fields = (; bⁿ⁻¹, Uⁿ⁻¹, χ, ∂b²),
                                       boundary_conditions = (b = b_bcs, u = u_bcs, v = v_bcs))
 
 @info "Built $model."
@@ -191,9 +192,8 @@ set!(model, b = bᵢ)
 #####
 
 Δt₀ = 1minutes
-stop_time = 500 * 360days # Run for 500 years!
 
-simulation = Simulation(model; Δt = Δt₀, stop_time)
+simulation = Simulation(model; Δt = Δt₀, stop_time = 100days)
 
 # add progress callback
 wall_clock = [time_ns()]
@@ -215,32 +215,44 @@ end
 
 simulation.callbacks[:print_progress] = Callback(print_progress, IterationInterval(20))
 
-wizard = TimeStepWizard(cfl=0.3, max_change=1.1, max_Δt=15minutes)
+wizard = TimeStepWizard(cfl=0.3, max_change=1.1, max_Δt=5minutes)
 simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10))
+
+run!(simulation)
+
+simulation.output_writers[:checkpointer] = Checkpointer(model,
+                                                        schedule = TimeInterval(360days),
+                                                        prefix = "abernathey_channel",
+                                                        overwrite_existing = true)
+
+simulation.stop_time = 100 * 360days
+wizard = TimeStepWizard(cfl=0.3, max_change=1.1, max_Δt=12minutes)
+simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10))
+
+run!(simulation)
 
 #####
 ##### Diagnostics
 #####
 
-# u, v, w = model.velocities
-# b = model.tracers.b
+stop_time = 120 * 360days # Run for 500 years!
 
-# ζ = Field(∂x(v) - ∂y(u))
+simulation.callbacks[:compute_diagnostics] = Callback(compute_χ_values, IterationInterval(1))
 
-# B = Field(Average(b, dims = 1))
-# V = Field(Average(v, dims = 1))
-# W = Field(Average(w, dims = 1))
+u, v, w = model.velocities
+b = model.tracers.b
+outputs = (; u, v, w, b)
 
-# b′ = b - B
-# v′ = v - V
-# w′ = w - W
-
-# v′b′ = Field(Average(v′ * b′, dims = 1))
-# w′b′ = Field(Average(w′ * b′, dims = 1))
-
-# outputs = (; b, ζ, w)
-
-# averaged_outputs = (; v′b′, w′b′, B)
+averaged_outputs = (; bⁿ⁻¹, 
+                      u = Uⁿ⁻¹.u,
+                      v = Uⁿ⁻¹.v,
+                      w = Uⁿ⁻¹.w,
+                      Pu = χ.u,
+                      Pv = χ.v,
+                      Pw = χ.w,
+                      ∂xb² = ∂b².u,
+                      ∂yb² = ∂b².v,
+                      ∂zb² = ∂b².w)
 
 grid_variables = (; sⁿ = model.grid.Δzᵃᵃᶠ.sⁿ, ∂t_∂s = model.grid.Δzᵃᵃᶠ.∂t_∂s)
 snapshot_outputs = merge(model.velocities, model.tracers)
@@ -250,28 +262,23 @@ snapshot_outputs = merge(snapshot_outputs, grid_variables)
 ##### Build checkpointer and output writer
 #####
 
-simulation.output_writers[:checkpointer] = Checkpointer(model,
-                                                        schedule = TimeInterval(100days),
-                                                        prefix = "abernathey_channel",
+simulation.output_writers[:snapshots] = JLD2OutputWriter(model, snapshot_outputs, 
+                                                         schedule = ConsecutiveIterations(TimeInterval(180days)),
+                                                         filename = "abernathey_channel_snapshots",
+                                                         overwrite_existing = true)
+
+simulation.output_writers[:snapshots] = JLD2OutputWriter(model, (; η = model.free_surface.η), 
+                                                         schedule = ConsecutiveIterations(TimeInterval(180days)),
+                                                         filename = "abernathey_channel_free_surface",
+                                                         overwrite_existing = true)
+
+simulation.output_writers[:averages] = JLD2OutputWriter(model, averaged_outputs, 
+                                                        schedule = AveragedTimeInterval(10years, stride = 10),
+                                                        filename = "abernathey_channel_averages",
                                                         overwrite_existing = true)
-
-# simulation.output_writers[:snapshots] = JLD2OutputWriter(model, snapshot_outputs, 
-#                                                          schedule = ConsecutiveIterations(TimeInterval(30days)),
-#                                                          filename = "abernathey_channel_snapshots",
-#                                                          verbose = true,
-#                                                          overwrite_existing = true)
-
-# simulation.output_writers[:averages] = JLD2OutputWriter(model, averaged_outputs, 
-#                                                         schedule = AveragedTimeInterval(5years, stride = 10),
-#                                                         filename = "abernathey_channel_averages",
-#                                                         verbose = true,
-#                                                         overwrite_existing = true)
 
 @info "Running the simulation..."
 
-try
-    run!(simulation; pickup)
-catch err
-    @info "run! threw an error! The error message is"
-    showerror(stdout, err)
-end
+run!(simulation; pickup)
+
+

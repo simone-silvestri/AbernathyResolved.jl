@@ -81,15 +81,15 @@ end
 
 function XinKaiVerticalDiffusivity(time_discretization = VerticallyImplicitTimeDiscretization(),
                                     FT  = Float64;
-				    ν₀  = 1e-5, 
+				                    ν₀  = 1e-5, 
                                     νˢʰ = 0.0885,
                                     νᶜⁿ = 4.3668,
                                     Cᵉⁿ = 0.2071,
                                     Prₜ = 1.207,
                                     Riᶜ = - 0.21982,
-				    δRi = 8.342e-4,
+				                    δRi = 8.342e-4,
                                     Q₀  = 0.08116,
-	         		    δQ  = 0.02622) 
+	         		                δQ  = 0.02622) 
 
     TD = typeof(time_discretization)
 
@@ -99,9 +99,9 @@ function XinKaiVerticalDiffusivity(time_discretization = VerticallyImplicitTimeD
                                          convert(FT, Cᵉⁿ),
                                          convert(FT, Prₜ),
                                          convert(FT, Riᶜ),
-					 convert(FT, δRi),
-					 convert(FT, Q₀),
-					 convert(FT, δQ))
+					                     convert(FT, δRi),
+					                     convert(FT, Q₀),
+					                     convert(FT, δQ))
 end
 
 XinKaiVerticalDiffusivity(FT::DataType; kw...) =
@@ -243,7 +243,7 @@ end
     # Entrainment diffusivity
     νᵉⁿ = ifelse(entraining, Cᵉⁿ * Qᵇ / N², zero(grid))
     x = Qᵇ / (N² + 1e-11)
-    ν_nonlocal = ifelse(entraining,  Cᵉⁿ * νᶜⁿ * 0.5 * (tanh((x - Q₀) / δQ) + 1), 0)
+    ν_nonlocal = ifelse(entraining,  Cᵉⁿ * νᵉⁿ * 0.5 * (tanh((x - Q₀) / δQ) + 1), zero(grid))
 
     # Update by averaging in time
     @inbounds diffusivities.κᵘ[i, j, k] =  ν_local + ν_nonlocal 

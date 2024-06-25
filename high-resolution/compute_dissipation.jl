@@ -1,16 +1,15 @@
-bⁿ⁻¹ = CenterField(grid)
-Uⁿ⁻¹ = VelocityFields(grid)
-χ    = VelocityFields(grid)
+using Oceananigans.Operators
 
-function compute_χ_values(model)
+function compute_χ_values(simulation)
+    model = simulation.model
     advection = model.advection.b
     grid = model.grid
     arch = architecture(grid)
     b = model.tracers.b
-    χ, bⁿ⁻¹, Uⁿ⁻¹ = simulation.model.auxiliary_fields
-
+    χ, bⁿ⁻¹, Uⁿ⁻¹, ∂b² = model.auxiliary_fields
+    
     launch!(arch, grid, :xyz, _compute_dissipation!, χ, grid, advection, 
-            Uⁿ⁻¹, b, bⁿ⁻¹)
+            Uⁿ⁻¹, b, bⁿ⁻¹, ∂b²)
 
     return nothing
 end
@@ -21,6 +20,10 @@ end
     @inbounds χ.u[i, j, k] = compute_χᵁ(i, j, k, grid, advection, Uⁿ⁻¹.u, b, bⁿ⁻¹)
     @inbounds χ.v[i, j, k] = compute_χⱽ(i, j, k, grid, advection, Uⁿ⁻¹.v, b, bⁿ⁻¹)
     @inbounds χ.w[i, j, k] = compute_χᵂ(i, j, k, grid, advection, Uⁿ⁻¹.w, b, bⁿ⁻¹)
+
+    @inbounds ∂b².u[i, j, k] = Axᶠᶜᶜ(i, j, k, grid) * δxᶠᶜᶜ(i, j, k, grid, bⁿ⁻¹)^2 / Δxᶠᶜᶜ(i, j, k, grid)
+    @inbounds ∂b².v[i, j, k] = Ayᶜᶠᶜ(i, j, k, grid) * δyᶜᶠᶜ(i, j, k, grid, bⁿ⁻¹)^2 / Δyᶜᶠᶜ(i, j, k, grid)
+    @inbounds ∂b².w[i, j, k] = Azᶜᶜᶠ(i, j, k, grid) * δzᶜᶜᶠ(i, j, k, grid, bⁿ⁻¹)^2 / Δzᶜᶜᶠ(i, j, k, grid)
 end
 
 @inline b★(i, j, k, grid, bⁿ, bⁿ⁻¹) = @inbounds (bⁿ[i, j, k] + bⁿ⁻¹[i, j, k]) / 2
@@ -34,7 +37,7 @@ end
     𝒜x = _advective_tracer_flux_x(i, j, k, grid, advection, U, bⁿ⁻¹)
     𝒟x = @inbounds Axᶠᶜᶜ(i, j, k, grid) * U[i, j, k] * δˣb²
 
-    return (𝒜x * 2 * δˣb★ - 𝒟x) / Vᶠᶜᶜ(i, j, k, grid)
+    return 𝒜x * 2 * δˣb★ - 𝒟x
 end
 
 @inline function compute_χⱽ(i, j, k, grid, advection, V, bⁿ, bⁿ⁻¹)
@@ -45,7 +48,7 @@ end
     𝒜y = _advective_tracer_flux_y(i, j, k, grid, advection, V, bⁿ⁻¹)
     𝒟y = @inbounds Ayᶜᶠᶜ(i, j, k, grid) * V[i, j, k] * δʸb²
 
-    return (𝒜y * 2 * δʸb★ - 𝒟y) / Vᶜᶠᶜ(i, j, k, grid)
+    return 𝒜y * 2 * δʸb★ - 𝒟y
 end
 
 @inline function compute_χᵂ(i, j, k, grid, advection, W, bⁿ, bⁿ⁻¹)
@@ -56,5 +59,6 @@ end
     𝒜z = _advective_tracer_flux_z(i, j, k, grid, advection, W, bⁿ⁻¹)
     𝒟z = @inbounds Azᶜᶜᶠ(i, j, k, grid) * W[i, j, k] * δᶻb²
 
-    return (𝒜z * 2 * δᶻb★ - 𝒟z) / Vᶜᶜᶠ(i, j, k, grid)
+    return 𝒜z * 2 * δᶻb★ - 𝒟z
 end
+
