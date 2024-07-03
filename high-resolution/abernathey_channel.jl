@@ -22,15 +22,14 @@ using KernelAbstractions: @kernel, @index
 const Lx = 1000kilometers # zonal domain length [m]
 const Ly = 2000kilometers # meridional domain length [m]
 
-CUDA.device!(3)
+CUDA.device!(1)
 
 include("compute_dissipation.jl")
 
 # Architecture
 arch = GPU()
 
-years  = 365days
-pickup = false
+pickup = "abernathey_channel_iteration8250349.jld2"
 
 # number of grid points
 Nx = 200
@@ -229,8 +228,6 @@ simulation.callbacks[:print_progress] = Callback(print_progress, IterationInterv
 wizard = TimeStepWizard(cfl=0.3, max_change=1.1, max_Δt=5minutes)
 simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10))
 
-run!(simulation)
-
 simulation.output_writers[:checkpointer] = Checkpointer(model,
                                                         schedule = TimeInterval(360days),
                                                         prefix = "abernathey_channel",
@@ -240,34 +237,22 @@ simulation.stop_time = 100 * 360days
 wizard = TimeStepWizard(cfl=0.3, max_change=1.1, max_Δt=12minutes)
 simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10))
 
-run!(simulation)
-
 #####
 ##### Diagnostics
 #####
 
-stop_time = 120 * 360days # Run for 500 years!
+simulation.stop_time = 130 * 360days # Run for 500 years!
 
-simulation.callbacks[:compute_diagnostics] = Callback(compute_χ_values, IterationInterval(1))
+simulation.callbacks[:compute_diagnostics] = Callback(compute_χ_values,  IterationInterval(1))
+simulation.callbacks[:update_velocities]   = Callback(update_velocities, IterationInterval(1))
 
 u, v, w = model.velocities
 b = model.tracers.b
 outputs = (; u, v, w, b)
 
-averaged_outputs = (; bⁿ⁻¹, 
-                      u = uⁿ⁻¹,
-                      v = vⁿ⁻¹,
-                      w = wⁿ⁻¹,
-                      Pu = χu,
-                      Pv = χv,
-                      Pw = χw,
-                      ∂xb²,
-                      ∂yb²,
-                      ∂zb²)
-
 grid_variables = (; sⁿ = model.grid.Δzᵃᵃᶠ.sⁿ, ∂t_∂s = model.grid.Δzᵃᵃᶠ.∂t_∂s)
 snapshot_outputs = merge(model.velocities, model.tracers)
-snapshot_outputs = merge(snapshot_outputs, grid_variables)
+snapshot_outputs = merge(snapshot_outputs, grid_variables, model.auxiliary_fields)
 
 #####
 ##### Build checkpointer and output writer
@@ -278,13 +263,8 @@ simulation.output_writers[:snapshots] = JLD2OutputWriter(model, snapshot_outputs
                                                          filename = "abernathey_channel_snapshots",
                                                          overwrite_existing = true)
 
-simulation.output_writers[:snapshots] = JLD2OutputWriter(model, (; η = model.free_surface.η), 
-                                                         schedule = ConsecutiveIterations(TimeInterval(180days)),
-                                                         filename = "abernathey_channel_free_surface",
-                                                         overwrite_existing = true)
-
-simulation.output_writers[:averages] = JLD2OutputWriter(model, averaged_outputs, 
-                                                        schedule = AveragedTimeInterval(10years, stride = 10),
+simulation.output_writers[:averages] = JLD2OutputWriter(model, model.auxiliary_fields, 
+                                                        schedule = AveragedTimeInterval(10 * 360days, stride = 10),
                                                         filename = "abernathey_channel_averages",
                                                         overwrite_existing = true)
 
