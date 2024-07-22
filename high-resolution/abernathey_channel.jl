@@ -230,8 +230,8 @@ function print_progress(sim)
         sim.model.clock.iteration,
         prettytime(sim.model.clock.time),
         prettytime(1e-9 * (time_ns() - wall_clock[1])),
-        maximum(abs, sim.model.velocities.u),
-        maximum(abs, sim.model.velocities.w),
+        maximum(abs, interior(sim.model.velocities.u)),
+        maximum(abs, interior(sim.model.velocities.w)),
         prettytime(sim.Δt))
 
     wall_clock[1] = time_ns()
