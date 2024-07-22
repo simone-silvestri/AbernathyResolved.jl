@@ -22,7 +22,7 @@ using KernelAbstractions: @kernel, @index
 const Lx = 1000kilometers # zonal domain length [m]
 const Ly = 2000kilometers # meridional domain length [m]
 
-CUDA.device!(1)
+# CUDA.device!(1)
 
 include("compute_dissipation.jl")
 
