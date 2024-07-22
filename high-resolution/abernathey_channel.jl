@@ -29,19 +29,27 @@ include("compute_dissipation.jl")
 # Architecture
 arch = GPU()
 
-pickup = "abernathey_channel_iteration8250349.jld2"
+pickup = false # "abernathey_channel_iteration8250349.jld2"
 
 # number of grid points
 Nx = 200
 Ny = 400
-Nz = 30
+Nz = 90
 
-Δz = [10,  10,  10,  12,  14,  18,
-      20,  23,  27,  31,  35,  40,
-      46,  53,  60,  68,  76,  86,
-      98,  110, 125, 141, 159, 180,
-      203, 230, 260, 280, 280, 280]
+# Thirty levels spacing
+# Δz = [10,  10,  10,  12,  14,  18,
+#       20,  23,  27,  31,  35,  40,
+#       46,  53,  60,  68,  76,  86,
+#       98,  110, 125, 141, 159, 180,
+#       203, 230, 260, 280, 280, 280]
       
+# Ninty levels spacing
+Δz = [10.0 * ones(6)...,
+      11.25, 12.625, 14.125, 15.8125, 17.75, 19.9375, 22.375, 25.125, 28.125, 31.625, 35.5, 39.75,
+      42.0 * ones(56)...,
+      39.75, 35.5, 31.625, 28.125, 25.125, 22.375, 19.9375, 17.75, 15.8125, 14.125, 12.625, 11.25,
+      10.0 * ones(4)...]
+
 z_faces = zeros(Nz+1)
 for k in Nz : -1 : 1
     z_faces[k] = z_faces[k+1] - Δz[Nz - k + 1]
@@ -83,6 +91,14 @@ parameters = (
     h  = 1000.0,                 # exponential decay scale of stable stratification [m]
     λt = 7.0days                 # relaxation time scale [s]
 )
+
+
+# Initial condition from MITgcm
+Tinit = Array{Float64}(undef, Nx*Ny*Nz)
+read!("tIni_80y_90L.bin", Tinit)
+Tinit = bswap.(Tinit) |> Array{Float64}
+Tinit = reshape(Tinit, Nx, Ny, Nz)
+binit = reverse(Tinit, dims = 3) * α .* g
 
 @inline function buoyancy_flux(i, j, grid, clock, model_fields, p)
     y = ynode(j, grid, Center())
@@ -195,7 +211,7 @@ model = HydrostaticFreeSurfaceModel(; grid,
 bᵢ(x, y, z) = parameters.ΔB * (exp(z / parameters.h) - exp(-grid.Lz / parameters.h)) / 
                               (1 - exp(-grid.Lz / parameters.h)) * (1 + cos(20π * x / Lx) / 100)
 
-set!(model, b = bᵢ) 
+set!(model, b = binit) 
 
 #####
 ##### Simulation building
@@ -233,7 +249,6 @@ simulation.output_writers[:checkpointer] = Checkpointer(model,
                                                         prefix = "abernathey_channel",
                                                         overwrite_existing = true)
 
-simulation.stop_time = 100 * 360days
 wizard = TimeStepWizard(cfl=0.3, max_change=1.1, max_Δt=12minutes)
 simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10))
 
