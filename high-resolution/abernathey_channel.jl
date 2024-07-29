@@ -182,17 +182,21 @@ bⁿ⁻¹ = CenterField(grid)
 Uⁿ⁻¹ = VelocityFields(grid)
 χ    = VelocityFields(grid)
 ∂b²  = VelocityFields(grid)
+ℱ    = VelocityFields(grid)
 
 auxiliary_fields = (; bⁿ⁻¹, 
-                      uⁿ⁻¹ = Uⁿ⁻¹.u,
-                      vⁿ⁻¹ = Uⁿ⁻¹.v,
-                      wⁿ⁻¹ = Uⁿ⁻¹.w,
-                      χu   = χ.u,
-                      χv   = χ.v,
-                      χw   = χ.w,
-                      ∂xb² = ∂b².u,
-                      ∂yb² = ∂b².v,
-                      ∂zb² = ∂b².w)
+                      uⁿ⁻¹  = Uⁿ⁻¹.u,
+                      vⁿ⁻¹  = Uⁿ⁻¹.v,
+                      wⁿ⁻¹  = Uⁿ⁻¹.w,
+                      fˣⁿ⁻¹ = ℱ.u,
+                      fʸⁿ⁻¹ = ℱ.v,
+                      fᶻⁿ⁻¹ = ℱ.w,
+                      χu    = χ.u,
+                      χv    = χ.v,
+                      χw    = χ.w,
+                      ∂xb²  = ∂b².u,
+                      ∂yb²  = ∂b².v,
+                      ∂zb²  = ∂b².w)
 
 model = HydrostaticFreeSurfaceModel(; grid,
                                       free_surface,
