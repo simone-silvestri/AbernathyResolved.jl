@@ -4,7 +4,7 @@ using Printf
 using Statistics
 using CUDA 
 
-using Oceananigans.TurbulenceClosures.CATKEVerticalDiffusivities: CATKEVerticalDiffusivity
+using Oceananigans.TurbulenceClosures.TKEBasedVerticalDiffusivities: CATKEMixingLength, CATKEVerticalDiffusivity
 using Oceananigans.TurbulenceClosures: FivePointHorizontalFilter
 
 using Oceananigans
@@ -29,7 +29,7 @@ include("compute_dissipation.jl")
 # Architecture
 arch = GPU()
 
-pickup = false # "abernathey_channel_iteration8250349.jld2"
+pickup = false # "abernathey_channel_iteration181044.jld2"
 
 # number of grid points
 Nx = 200
@@ -98,7 +98,7 @@ Tinit = Array{Float64}(undef, Nx*Ny*Nz)
 read!("tIni_80y_90L.bin", Tinit)
 Tinit = bswap.(Tinit) |> Array{Float64}
 Tinit = reshape(Tinit, Nx, Ny, Nz)
-binit = reverse(Tinit, dims = 3) * α .* g
+binit = reverse(Tinit, dims = 3) .* α .* g
 
 @inline function buoyancy_flux(i, j, grid, clock, model_fields, p)
     y = ynode(j, grid, Center())
@@ -133,11 +133,11 @@ end
 
 u_stress_bc = FluxBoundaryCondition(u_stress; discrete_form = true, parameters)
 
-@inline  u_drag(i, j, grid, clock, model_fields, p) = @inbounds - p.μ * model_fields.u[i, j, 1]
-@inline  v_drag(i, j, grid, clock, model_fields, p) = @inbounds - p.μ * model_fields.v[i, j, 1]
+@inline u_drag(i, j, grid, clock, model_fields, p) = @inbounds - p.μ * model_fields.u[i, j, 1]
+@inline v_drag(i, j, grid, clock, model_fields, p) = @inbounds - p.μ * model_fields.v[i, j, 1]
 
-u_drag_bc  = FluxBoundaryCondition(u_drag;  discrete_form = true, parameters)
-v_drag_bc  = FluxBoundaryCondition(v_drag;  discrete_form = true, parameters)
+u_drag_bc = FluxBoundaryCondition(u_drag; discrete_form = true, parameters)
+v_drag_bc = FluxBoundaryCondition(v_drag; discrete_form = true, parameters)
 
 b_bcs = FieldBoundaryConditions(top = buoyancy_flux_bc)
 u_bcs = FieldBoundaryConditions(top = u_stress_bc, bottom = u_drag_bc)
@@ -154,21 +154,25 @@ coriolis = BetaPlane(f₀ = -1e-4, β = 1e-11)
 #####
 
 # closure
-include("xin_kai_vertical_diffusivity.jl")
+mixing_length = CATKEMixingLength(; Cᵇ = 0.01)
+closure = CATKEVerticalDiffusivity(; mixing_length)
 
-closure = XinKaiVerticalDiffusivity()
+closure = ConvectiveAdjustmentVerticalDiffusivity(background_κz = 1e-5,
+						  convective_κz = 0.1,
+					          background_νz = 1e-4,
+						  convective_νz = 0.1)
 
 #####
 ##### Model building
 #####
 
-momentum_advection = VectorInvariant(vertical_scheme   = Centered(),
+momentum_advection = VectorInvariant(vertical_scheme   = WENO(),
                                      vorticity_scheme  = WENO(; order = 9),
                                      divergence_scheme = WENO())
 
 @info "Building a model..."
 
-tracer_advection = TracerAdvection(WENO(; order = 7), WENO(; order = 7), Centered())
+tracer_advection = WENO(grid; order = 7) # TracerAdvection(WENO(; order = 7), WENO(; order = 7), WENO(grid))
 
 free_surface = SplitExplicitFreeSurface(grid; substeps = 90)
 
@@ -196,7 +200,7 @@ model = HydrostaticFreeSurfaceModel(; grid,
                                       coriolis,
                                       generalized_vertical_coordinate = ZStar(),
                                       closure,
-                                      tracers = :b,
+                                      tracers = (:b, :e),
                                       forcing = (; b = buoyancy_restoring),
                                       auxiliary_fields,
                                       boundary_conditions = (b = b_bcs, u = u_bcs, v = v_bcs))
@@ -211,7 +215,7 @@ model = HydrostaticFreeSurfaceModel(; grid,
 bᵢ(x, y, z) = parameters.ΔB * (exp(z / parameters.h) - exp(-grid.Lz / parameters.h)) / 
                               (1 - exp(-grid.Lz / parameters.h)) * (1 + cos(20π * x / Lx) / 100)
 
-set!(model, b = binit) 
+set!(model, b = binit, e = 1e-6) 
 
 #####
 ##### Simulation building
@@ -249,7 +253,7 @@ simulation.output_writers[:checkpointer] = Checkpointer(model,
                                                         prefix = "abernathey_channel",
                                                         overwrite_existing = true)
 
-wizard = TimeStepWizard(cfl=0.3, max_change=1.1, max_Δt=12minutes)
+wizard = TimeStepWizard(cfl=0.2, max_change=1.1, max_Δt=6minutes)
 simulation.callbacks[:wizard] = Callback(wizard, IterationInterval(10))
 
 #####
@@ -266,8 +270,9 @@ b = model.tracers.b
 outputs = (; u, v, w, b)
 
 grid_variables = (; sⁿ = model.grid.Δzᵃᵃᶠ.sⁿ, ∂t_∂s = model.grid.Δzᵃᵃᶠ.∂t_∂s)
-snapshot_outputs = merge(model.velocities, model.tracers)
-snapshot_outputs = merge(snapshot_outputs, grid_variables, model.auxiliary_fields)
+snapshot_outputs = merge(model.velocities,  model.tracers)
+snapshot_outputs = merge(snapshot_outputs,  grid_variables, model.auxiliary_fields)
+average_outputs  = merge(snapshot_outputs, model.auxiliary_fields)
 
 #####
 ##### Build checkpointer and output writer
@@ -278,7 +283,7 @@ simulation.output_writers[:snapshots] = JLD2OutputWriter(model, snapshot_outputs
                                                          filename = "abernathey_channel_snapshots",
                                                          overwrite_existing = true)
 
-simulation.output_writers[:averages] = JLD2OutputWriter(model, model.auxiliary_fields, 
+simulation.output_writers[:averages] = JLD2OutputWriter(model, average_outputs, 
                                                         schedule = AveragedTimeInterval(10 * 360days, stride = 10),
                                                         filename = "abernathey_channel_averages",
                                                         overwrite_existing = true)
