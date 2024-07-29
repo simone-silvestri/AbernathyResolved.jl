@@ -172,7 +172,9 @@ momentum_advection = VectorInvariant(vertical_scheme   = WENO(),
 
 @info "Building a model..."
 
-tracer_advection = WENO(grid; order = 7) # TracerAdvection(WENO(; order = 7), WENO(; order = 7), WENO(grid))
+tracer_advection = TracerAdvection(WENO(; order = 7), WENO(; order = 7), Centered()) # WENO(grid))
+
+# closure = (closure, HorizontalScalarDiffusivity(κ = 30))
 
 free_surface = SplitExplicitFreeSurface(grid; substeps = 90)
 
