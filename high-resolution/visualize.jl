@@ -72,9 +72,6 @@ irange = 1:390
 κzm = mean(κz[irange, :], dims = 1)[1, :] 
 κim = mean(κi[irange, :], dims = 1)[1, :] 
 
-jldsave("mytest.jld2";  κixm, κiym, κizm, κxm,κym, κzm, κx, κy, κz)
-
-
 fig = Figure(); ax = Axis(fig[1, 1], ylabel = "z [m]", xlabel = "Diffusivity [m²/s]")
 
 lines!(ax, κixm, zC, color = :blue,  linewidth = 2, label = "κx Sx² = - ⟨Px⟩ / ⟨(∂zb)²⟩") 
