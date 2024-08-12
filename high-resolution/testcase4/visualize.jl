@@ -5,23 +5,14 @@ file = jldopen("abernathey_channel_averages.jld2")
 
 iteration = keys(file["timeseries/t"])[end]
 
-# file = jldopen("mytest.jld2")
+# file = jldopen("just_test.jld2")
 
-if isnothing(iteration)
-cx = file["cx"]
-cy = file["cy"]
-cz = file["cz"]
-bx = file["bx"]
-by = file["by"]
-bz = file["bz"]
-else
 cx = file["timeseries/χu/" * iteration] 
 cy = file["timeseries/χv/" * iteration] 
 cz = file["timeseries/χw/" * iteration]  
 bx = file["timeseries/∂xb²/" * iteration]
 by = file["timeseries/∂yb²/" * iteration]
 bz = file["timeseries/∂zb²/" * iteration]
-end
 
 cxm = mean(cx, dims = 1)[1, :, :]
 cym = mean(cy, dims = 1)[1, :, :]
